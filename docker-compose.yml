@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: erp-apaa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-erp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-erp_secret_password}
+      POSTGRES_DB: ${POSTGRES_DB:-erp_apaa}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - erp_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-erp_user} -d ${POSTGRES_DB:-erp_apaa}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: erp-apaa-web
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-erp_user}:${POSTGRES_PASSWORD:-erp_secret_password}@postgres:5432/${POSTGRES_DB:-erp_apaa}?schema=public"
+      JWT_SECRET: ${JWT_SECRET:-erp_apaa_chave_secreta_jwt_2026_substituir_em_producao}
+      NODE_ENV: production
+      PORT: 3000
+    ports:
+      - "${APP_PORT:-3000}:3000"
+
+volumes:
+  erp_postgres_data:
+    name: erp_apaa_postgres_data
+
