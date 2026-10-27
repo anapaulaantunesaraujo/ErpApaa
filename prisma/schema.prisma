@@ -26,3 +26,311 @@ model User {
   @@map("users")
 }
 
+model CompanySettings {
+  id                 String   @id @default(cuid())
+  razaoSocial        String   @default("50.756.275 ANA PAULA ANTUNES ARAUJO")
+  nomeFantasia       String?  @default("APAA CONSULTORIA")
+  cnpj               String   @default("50.756.275/0001-28")
+  inscricaoMunicipal String?
+  porte              String?  @default("ME")
+  naturezaJuridica   String?  @default("213-5 - Empresário (Individual)")
+  cnaePrincipal      String?  @default("85.99-6-99")
+  cnaeDescricao      String?  @default("Outras atividades de ensino não especificadas anteriormente")
+  regimeTributario   String   @default("SIMPLES_NACIONAL") // SIMPLES_NACIONAL, LUCRO_PRESUMIDO, LUCRO_REAL, MEI
+  optanteSimples     Boolean  @default(true)
+  aliquotaIssPadrao  Float    @default(2.0)
+  
+  // Endereço e Contato
+  logradouro         String?  @default("R VEREADOR TELEMACO DE OLIVEIRA")
+  numero             String?  @default("672")
+  complemento        String?
+  bairro             String?  @default("CORDEIROS")
+  cidade             String?  @default("ITAJAI")
+  uf                 String?  @default("SC")
+  cep                String?  @default("88.311-200")
+  telefone           String?  @default("(47) 9233-9005")
+  email              String?  @default("ANAPAULA.ANTUNESARAUJO@GMAIL.COM")
+  
+  // Dados de e-mail monitorado pela IA
+  emailFinanceiro    String?  @default("ana.antunes@apaatreinamento.net.br")
+  emailHost          String?
+  emailPort          Int?
+  emailUser          String?
+  emailPass          String?
+  emailFolder        String?  @default("INBOX")
+  geminiApiKey       String?
+
+  // Dados da conta Sicredi padrão
+  agenciaSicredi     String?
+  contaSicredi       String?
+  
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("company_settings")
+}
+
+model CompanyService {
+  id                      String         @id @default(cuid())
+  codigo                  String?        // ex: "SRV-01"
+  descricao               String         // Nome do serviço (ex: Treinamento Corporativo)
+  cnae                    String         // ex: "8599-6/04"
+  codigoTributacaoNacional String        // Padrão NFS-e Nacional 2026 (ex: "08.02.01")
+  itemLc116               String?        // ex: "8.02"
+  aliquotaIss             Float          @default(2.0)
+  retencaoIss             Boolean        @default(false)
+  aliquotaPis             Float          @default(0.0)
+  aliquotaCofins          Float          @default(0.0)
+  aliquotaInss            Float          @default(0.0)
+  aliquotaIr              Float          @default(0.0)
+  aliquotaCsll            Float          @default(0.0)
+  valorPadrao             Float?
+  ativo                   Boolean        @default(true)
+  nfseEmissions           NfseEmission[]
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+
+  @@map("company_services")
+}
+
+model Customer {
+  id                  String         @id @default(cuid())
+  nome                String
+  nomeFantasia        String?
+  cpfCnpj             String         @unique
+  email               String?
+  telefone            String?
+  logradouro          String?
+  numero              String?
+  complemento         String?
+  bairro              String?
+  cidade              String?
+  uf                  String?
+  cep                 String?
+  codigoMunicipioIbge String?
+  inscricaoMunicipal  String?
+  ativo               Boolean        @default(true)
+  receivables         Receivable[]
+  nfseEmissions       NfseEmission[]
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  @@map("customers")
+}
+
+model Supplier {
+  id        String    @id @default(cuid())
+  nome      String
+  cpfCnpj   String?   @unique
+  email     String?
+  telefone  String?
+  chavePix  String?
+  banco     String?
+  agencia   String?
+  conta     String?
+  payables  Payable[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@map("suppliers")
+}
+
+model Payable {
+  id                  String            @id @default(cuid())
+  descricao           String
+  fornecedorId        String?
+  fornecedor          Supplier?         @relation(fields: [fornecedorId], references: [id])
+  fornecedorNome      String
+  fornecedorCpfCnpj   String?
+  categoria           String            @default("GERAL")
+  numeroDocumento     String?           // Nº do boleto ou NF
+  valorOriginal       Float
+  valorJuros          Float             @default(0.0)
+  valorMulta          Float             @default(0.0)
+  valorDesconto       Float             @default(0.0)
+  valorPago           Float             @default(0.0)
+  dataCompetencia     DateTime          // Mês de referência
+  dataEmissao         DateTime?
+  dataVencimento      DateTime
+  dataPagamento       DateTime?
+  status              String            @default("PENDENTE") // PENDENTE, PAGO, PARCIAL, CANCELADO
+  origem              String            @default("MANUAL")   // MANUAL, EMAIL_IA, IMPORTACAO
+  linhaDigitavel      String?
+  chavePix            String?
+  observacoes         String?
+  conciliado          Boolean           @default(false)
+  dataConciliacao     DateTime?
+  anexos              Attachment[]
+  baixas              PaymentRecord[]
+  transacoesBancarias BankTransaction[]
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@map("payables")
+}
+
+model Receivable {
+  id                  String            @id @default(cuid())
+  descricao           String
+  clienteId           String?
+  cliente             Customer?         @relation(fields: [clienteId], references: [id])
+  clienteNome         String
+  clienteCpfCnpj      String?
+  categoria           String            @default("SERVICOS")
+  numeroNf            String?           // Nº da Nota Fiscal emitida
+  valorOriginal       Float
+  valorJuros          Float             @default(0.0)
+  valorMulta          Float             @default(0.0)
+  valorDesconto       Float             @default(0.0)
+  valorRecebido       Float             @default(0.0)
+  dataCompetencia     DateTime
+  dataEmissao         DateTime?
+  dataVencimento      DateTime
+  dataRecebimento     DateTime?
+  status              String            @default("PENDENTE") // PENDENTE, RECEBIDO, PARCIAL, CANCELADO
+  origem              String            @default("MANUAL")   // MANUAL, NFSE_NACIONAL, EMAIL_IA
+  observacoes         String?
+  conciliado          Boolean           @default(false)
+  dataConciliacao     DateTime?
+  nfseEmissionId      String?           @unique
+  nfseEmission        NfseEmission?     @relation(fields: [nfseEmissionId], references: [id])
+  anexos              Attachment[]
+  baixas              PaymentRecord[]
+  transacoesBancarias BankTransaction[]
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@map("receivables")
+}
+
+model PaymentRecord {
+  id                 String      @id @default(cuid())
+  tipo               String      // PAGAMENTO ou RECEBIMENTO
+  payableId          String?
+  payable            Payable?    @relation(fields: [payableId], references: [id], onDelete: Cascade)
+  receivableId       String?
+  receivable         Receivable? @relation(fields: [receivableId], references: [id], onDelete: Cascade)
+  data               DateTime
+  valor              Float
+  valorJuros         Float       @default(0.0)
+  valorMulta         Float       @default(0.0)
+  valorDesconto      Float       @default(0.0)
+  formaPagamento     String      @default("PIX") // PIX, BOLETO, DEBITO_CONTA, TED
+  comprovanteAnexoId String?
+  observacoes        String?
+  createdAt          DateTime    @default(now())
+
+  @@map("payment_records")
+}
+
+model Attachment {
+  id              String         @id @default(cuid())
+  categoria       String         // BOLETO, DOCUMENTO, COMPROVANTE
+  nomeOriginal    String
+  nomeArquivo     String
+  caminho         String         // Caminho absoluto ou relativo em storage
+  mimeType        String
+  tamanho         Int
+  competencia     String         // Ex: "2026-09"
+  payableId       String?
+  payable         Payable?       @relation(fields: [payableId], references: [id], onDelete: Cascade)
+  receivableId    String?
+  receivable      Receivable?    @relation(fields: [receivableId], references: [id], onDelete: Cascade)
+  bankStatementId String?
+  bankStatement   BankStatement? @relation(fields: [bankStatementId], references: [id], onDelete: Cascade)
+  createdAt       DateTime       @default(now())
+
+  @@map("attachments")
+}
+
+model BankStatement {
+  id            String            @id @default(cuid())
+  banco         String            @default("Sicredi")
+  agencia       String?
+  conta         String?
+  mes           Int
+  ano           Int
+  dataInicio    DateTime?
+  dataFim       DateTime?
+  saldoInicial  Float             @default(0.0)
+  saldoFinal    Float             @default(0.0)
+  totalCreditos Float             @default(0.0)
+  totalDebitos  Float             @default(0.0)
+  anexos        Attachment[]      // 3 arquivos (.ofx, .txt, .pdf)
+  transacoes    BankTransaction[]
+  createdAt     DateTime          @default(now())
+
+  @@map("bank_statements")
+}
+
+model BankTransaction {
+  id              String        @id @default(cuid())
+  statementId     String
+  statement       BankStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  fitid           String        // ID único da transação no OFX
+  tipo            String        // DEBIT, CREDIT
+  data            DateTime
+  descricao       String        // Texto do extrato
+  valor           Float         // Negativo débito, positivo crédito
+  saldo           Float?
+  numeroDocumento String?
+  conciliado      Boolean       @default(false)
+  payableId       String?
+  payable         Payable?      @relation(fields: [payableId], references: [id])
+  receivableId    String?
+  receivable      Receivable?   @relation(fields: [receivableId], references: [id])
+  createdAt       DateTime      @default(now())
+
+  @@map("bank_transactions")
+}
+
+model NfseEmission {
+  id                      String          @id @default(cuid())
+  numeroDps               String?
+  serieDps                String          @default("1")
+  numeroNfse              String?
+  chaveAcesso             String?
+  linkDanfse              String?
+  clienteId               String?
+  cliente                 Customer?       @relation(fields: [clienteId], references: [id])
+  servicoId               String?
+  servico                 CompanyService? @relation(fields: [servicoId], references: [id])
+  discriminacao           String
+  valorServico            Float
+  valorDeducoes           Float           @default(0.0)
+  valorIss                Float           @default(0.0)
+  aliquotaIss             Float           @default(2.0)
+  issRetido               Boolean         @default(false)
+  valorLiquido            Float
+  dataEmissao             DateTime        @default(now())
+  status                  String          @default("RASCUNHO") // RASCUNHO, EMITIDA, REJEITADA, CANCELADA
+  motivoStatus            String?
+  dataCancelamento        DateTime?
+  motivoCancelamento      String?
+  codigoMotivoCancelamento String?         // 1 - Erro na Emissão, 2 - Serviço não prestado, 3 - Duplicidade, 9 - Outros
+  protocoloCancelamento   String?
+  xmlEnvio                String?
+  xmlRetorno              String?
+  xmlCancelamento         String?
+  receivable              Receivable?
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
+
+  @@map("nfse_emissions")
+}
+
+model EmailSyncLog {
+  id           String   @id @default(cuid())
+  messageId    String
+  from         String
+  subject      String
+  data         DateTime
+  totalAnexos  Int      @default(0)
+  status       String   // SUCESSO, PARCIAL, ERRO
+  resultadoIa  String?
+  itensCriados String?
+  erro         String?
+  createdAt    DateTime @default(now())
+
+  @@map("email_sync_logs")
+}
