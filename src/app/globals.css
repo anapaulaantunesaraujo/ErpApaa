@@ -1,19 +1,128 @@
 @import "tailwindcss";
 
+/**
+ * APAA CONSULTORIA E DESENVOLVIMENTO
+ * CSS Global & Theme Tokens — Manual Oficial da Marca
+ *
+ * Cores Oficiais:
+ * - Azul Tech: #0B3D91
+ * - Azul Claro: #00A6FF
+ * - Laranja: #FF7A00
+ * - Cinza: #444A50
+ * - Off White: #F5F7FA
+ *
+ * Tipografia Oficial:
+ * - Montserrat (Títulos e Logotipo)
+ * - Open Sans (Textos de leitura e apoio)
+ * - JetBrains Mono (Selos técnicos e códigos)
+ */
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
+  /* Cores Oficiais da Marca APAA */
+  --apaa-tech-blue: #0B3D91;
+  --apaa-light-blue: #00A6FF;
+  --apaa-orange: #FF7A00;
+  --apaa-gray: #444A50;
+  --apaa-off-white: #F5F7FA;
+
+  /* Mapeamento Semântico para o Design System */
+  --apaa-primary: #0B3D91;            /* Azul Tech */
+  --apaa-primary-hover: #082e6e;
+  --apaa-highlight: #00A6FF;          /* Azul Claro */
+  --apaa-highlight-hover: #0091e0;
+  --apaa-accent: #FF7A00;             /* Laranja Oficial */
+  --apaa-accent-hover: #e06b00;
+
+  /* Superfícies e Fundos */
+  --apaa-background: #F5F7FA;         /* Off-white */
+  --apaa-foreground: #0e1624;         /* Texto principal de alto contraste */
+  --apaa-muted-foreground: #444A50;   /* Cinza oficial */
+  --apaa-border: #d8e0ea;             /* Bordas sutis */
+  --apaa-input: #ccd5e0;              /* Borda de inputs */
+  --apaa-card: #ffffff;               /* Fundo de cartões e inputs */
+
+  /* Painel Tecnológico Escuro */
+  --apaa-panel: #06152d;              /* Azul-marinho profundo */
+  --apaa-panel-foreground: #F5F7FA;   /* Off-white sobre fundo escuro */
+  --apaa-panel-gradient:
+    radial-gradient(circle at 18% 12%, rgba(11, 61, 145, 0.95) 0%, transparent 60%),
+    radial-gradient(circle at 88% 92%, rgba(0, 166, 255, 0.40) 0%, transparent 52%),
+    #06152d;
+
+  /* Sombras e Raios de Borda */
+  --apaa-shadow-elegant: 0 20px 50px -20px rgba(11, 61, 145, 0.4);
+  --apaa-shadow-accent: 0 20px 50px -20px rgba(255, 122, 0, 0.4);
+  --apaa-shadow-card: 0 10px 30px -10px rgba(11, 61, 145, 0.06);
+  --apaa-radius: 10px;
+  --apaa-radius-brand: 8px;
+
+  /* Grade técnica do painel */
+  --apaa-grid-lines:
+    linear-gradient(rgba(0, 166, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 166, 255, 0.08) 1px, transparent 1px);
+  --apaa-grid-size: 48px 48px;
+
+  /* Tipografia */
+  --font-display: var(--font-montserrat), "Montserrat", sans-serif;
+  --font-sans: var(--font-open-sans), "Open Sans", sans-serif;
+  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #020617;
-    --foreground: #f8fafc;
-  }
+@theme {
+  --color-primary: #0B3D91;
+  --color-primary-hover: #082e6e;
+  --color-primary-foreground: #ffffff;
+  --color-highlight: #00A6FF;
+  --color-highlight-hover: #0091e0;
+  --color-accent: #FF7A00;
+  --color-accent-hover: #e06b00;
+
+  --color-tech-blue: #0B3D91;
+  --color-light-blue: #00A6FF;
+  --color-orange: #FF7A00;
+  --color-gray: #444A50;
+  --color-off-white: #F5F7FA;
+
+  --color-background: #F5F7FA;
+  --color-foreground: #0e1624;
+  --color-muted-foreground: #444A50;
+  --color-border: #d8e0ea;
+  --color-input: #ccd5e0;
+  --color-card: #ffffff;
+
+  --color-panel: #06152d;
+  --color-panel-foreground: #F5F7FA;
+
+  --font-display: var(--font-display);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --shadow-elegant: 0 20px 50px -20px rgba(11, 61, 145, 0.4);
+  --shadow-accent: 0 20px 50px -20px rgba(255, 122, 0, 0.4);
+}
+
+.bg-panel-gradient {
+  background: var(--apaa-panel-gradient);
+}
+
+.grid-lines {
+  background-image: var(--apaa-grid-lines);
+  background-size: var(--apaa-grid-size);
+}
+
+/* Halo de foco oficial da Apaa */
+.focus-ring-apaa {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.focus-ring-apaa:focus,
+.focus-ring-apaa:focus-within {
+  border-color: var(--apaa-highlight);
+  box-shadow: 0 0 0 2px rgba(0, 166, 255, 0.25);
+  outline: none;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background-color: var(--apaa-background);
+  color: var(--apaa-foreground);
+  font-family: var(--font-sans);
 }
