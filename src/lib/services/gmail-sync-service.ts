@@ -22,7 +22,7 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
   const pass = process.env.GMAIL_APP_PASS || settings?.emailPass || "fgut uliz evis bqdm";
   const host = process.env.IMAP_HOST || settings?.emailHost || "imap.gmail.com";
   const port = Number(process.env.IMAP_PORT || settings?.emailPort || 993);
-  const targetFolder = settings?.emailFolder || process.env.GMAIL_FOLDER || "APAA_FINANCEIRO";
+  const configuredFolder = settings?.emailFolder || process.env.GMAIL_FOLDER || "Financeiro";
   const companyCnpjClean = settings?.cnpj ? settings.cnpj.replace(/\D/g, "") : "50756275000128";
 
   const result: EmailSyncResult = {
@@ -49,18 +49,44 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
   try {
     await client.connect();
 
-    // 1. Tenta abrir a pasta ou marcador especificado. Se não existir, tenta abrir a INBOX
+    // 1. Lista as caixas/marcadores existentes para encontrar o nome exato (ex: "Financeiro" ou "APAA_FINANCEIRO")
+    const mailboxes = await client.list();
+    let targetFolder = "";
+
+    const candidateNames = [
+      configuredFolder.toLowerCase(),
+      "financeiro",
+      "apaa_financeiro",
+      "apaa financeiro",
+    ];
+
+    for (const mb of mailboxes) {
+      const mbNameLower = mb.name.toLowerCase();
+      const mbPathLower = mb.path.toLowerCase();
+      if (candidateNames.some((c) => mbNameLower === c || mbPathLower === c || mbPathLower.endsWith(`/${c}`))) {
+        targetFolder = mb.path;
+        break;
+      }
+    }
+
+    if (!targetFolder) {
+      targetFolder = configuredFolder;
+    }
+
     let lock;
     try {
       lock = await client.getMailboxLock(targetFolder);
     } catch {
-      // Fallback para INBOX se o marcador específico ainda não foi criado no Gmail
-      lock = await client.getMailboxLock("INBOX");
+      try {
+        lock = await client.getMailboxLock("Financeiro");
+      } catch {
+        lock = await client.getMailboxLock("INBOX");
+      }
     }
 
     try {
-      // 2. Busca e-mails recentes não lidos ou todos da pasta
-      const messages = client.fetch({ seen: false }, { source: true, uid: true, envelope: true });
+      // 2. Busca e-mails na pasta (todos ou os 20 mais recentes)
+      const messages = client.fetch("1:*", { source: true, uid: true, envelope: true });
 
       const uploadDir = path.join(process.cwd(), "public", "uploads", "anexos");
       await fs.mkdir(uploadDir, { recursive: true });
