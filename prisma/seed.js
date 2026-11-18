@@ -52,7 +52,12 @@ async function main() {
     cep: "88.311-200",
     telefone: "(47) 9233-9005",
     email: "ANAPAULA.ANTUNESARAUJO@GMAIL.COM",
-    emailFinanceiro: "ana.antunes@apaatreinamento.net.br",
+    emailFinanceiro: "apaaerp@gmail.com",
+    emailHost: "imap.gmail.com",
+    emailPort: 993,
+    emailUser: "apaaerp@gmail.com",
+    emailPass: "fgut uliz evis bqdm",
+    emailFolder: "APAA_FINANCEIRO",
   };
 
   if (existingSettings) {
@@ -93,6 +98,67 @@ async function main() {
     });
     console.log("✔ Serviço fiscal padrão com CNAE 85.99-6-99 cadastrado com sucesso.");
   }
+
+  // Garante a Conta Bancária Sicredi Principal
+  let bankAccount = await prisma.bankAccount.findFirst({
+    where: { banco: "Sicredi" },
+  });
+
+  if (!bankAccount) {
+    bankAccount = await prisma.bankAccount.create({
+      data: {
+        banco: "Sicredi",
+        tipo: "CORRENTE",
+        agencia: "0101",
+        conta: "12345-6",
+        descricao: "Sicredi Conta Principal APAA",
+        saldoInicial: 6359.07,
+        saldoAtual: 6359.07,
+        cor: "#0B3D91",
+        ativo: true,
+      },
+    });
+    console.log("✔ Conta Bancária Sicredi criada com sucesso.");
+  }
+
+  // Garante o Cartão de Crédito Empresarial
+  const existingCard = await prisma.creditCard.findFirst();
+  if (!existingCard) {
+    await prisma.creditCard.create({
+      data: {
+        nome: "Sicredi Corporativo",
+        bandeira: "MASTERCARD",
+        ultimosDigitos: "4321",
+        limite: 15000.0,
+        diaFechamento: 5,
+        diaVencimento: 15,
+        bankAccountId: bankAccount.id,
+        ativo: true,
+      },
+    });
+    console.log("✔ Cartão de Crédito Sicredi Corporativo criado com sucesso.");
+  }
+
+  // Garante Categorias de Gastos para Mapeamento de Faturas
+  const defaultCategories = [
+    { nome: "Software & SaaS", cor: "#0B3D91", icone: "Code" },
+    { nome: "Treinamentos & Cursos", cor: "#00A6FF", icone: "GraduationCap" },
+    { nome: "Viagens, Transporte & Combustível", cor: "#FF7A00", icone: "Car" },
+    { nome: "Alimentação & Refeições", cor: "#E11D48", icone: "Utensils" },
+    { nome: "Marketing & Publicidade", cor: "#8B5CF6", icone: "Megaphone" },
+    { nome: "Escritório & Suprimentos", cor: "#10B981", icone: "Briefcase" },
+    { nome: "Serviços de Terceiros", cor: "#F59E0B", icone: "Users" },
+    { nome: "Outros Gastos", cor: "#64748B", icone: "Tag" },
+  ];
+
+  for (const cat of defaultCategories) {
+    await prisma.expenseCategory.upsert({
+      where: { nome: cat.nome },
+      update: {},
+      create: cat,
+    });
+  }
+  console.log("✔ Categorias de custos de faturas garantidas.");
 }
 
 main()

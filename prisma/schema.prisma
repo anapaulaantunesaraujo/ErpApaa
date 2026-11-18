@@ -160,6 +160,9 @@ model Payable {
   observacoes         String?
   conciliado          Boolean           @default(false)
   dataConciliacao     DateTime?
+  bankAccountId       String?
+  bankAccount         BankAccount?      @relation(fields: [bankAccountId], references: [id])
+  cardInvoice         CardInvoice?
   anexos              Attachment[]
   baixas              PaymentRecord[]
   transacoesBancarias BankTransaction[]
@@ -192,6 +195,8 @@ model Receivable {
   observacoes         String?
   conciliado          Boolean           @default(false)
   dataConciliacao     DateTime?
+  bankAccountId       String?
+  bankAccount         BankAccount?      @relation(fields: [bankAccountId], references: [id])
   nfseEmissionId      String?           @unique
   nfseEmission        NfseEmission?     @relation(fields: [nfseEmissionId], references: [id])
   anexos              Attachment[]
@@ -238,9 +243,107 @@ model Attachment {
   receivable      Receivable?    @relation(fields: [receivableId], references: [id], onDelete: Cascade)
   bankStatementId String?
   bankStatement   BankStatement? @relation(fields: [bankStatementId], references: [id], onDelete: Cascade)
+  cardExpenseId   String?
+  cardExpense     CardExpense?   @relation(fields: [cardExpenseId], references: [id], onDelete: Cascade)
   createdAt       DateTime       @default(now())
 
   @@map("attachments")
+}
+
+model BankAccount {
+  id              String            @id @default(cuid())
+  banco           String            // Ex: "Sicredi", "Banco do Brasil", "Itaú"
+  tipo            String            @default("CORRENTE") // CORRENTE, POUPANCA, INVESTIMENTO
+  agencia         String
+  conta           String
+  descricao       String            // Ex: "Sicredi Principal APAA"
+  saldoInicial    Float             @default(0.0)
+  saldoAtual      Float             @default(0.0)
+  cor             String?           @default("#0B3D91")
+  ativo           Boolean           @default(true)
+  statements      BankStatement[]
+  payables        Payable[]
+  receivables     Receivable[]
+  creditCards     CreditCard[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@map("bank_accounts")
+}
+
+model CreditCard {
+  id              String            @id @default(cuid())
+  nome            String            // Ex: "Sicredi Mastercard Black", "Nubank PJ"
+  bandeira        String            @default("MASTERCARD") // VISA, MASTERCARD, ELO, AMEX
+  ultimosDigitos  String            @default("0000") // Ex: "4321"
+  limite          Float             @default(0.0)
+  diaFechamento   Int               @default(1) // Dia do mês em que fecha a fatura
+  diaVencimento   Int               @default(10) // Dia do mês em que vence a fatura
+  bankAccountId   String?
+  bankAccount     BankAccount?      @relation(fields: [bankAccountId], references: [id])
+  ativo           Boolean           @default(true)
+  faturas         CardInvoice[]
+  despesas        CardExpense[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@map("credit_cards")
+}
+
+model CardInvoice {
+  id              String            @id @default(cuid())
+  cardId          String
+  card            CreditCard        @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  mes             Int               // Mês da fatura (1 a 12)
+  ano             Int               // Ano da fatura (ex: 2026)
+  dataFechamento  DateTime
+  dataVencimento  DateTime
+  valorTotal      Float             @default(0.0)
+  status          String            @default("ABERTA") // ABERTA, FECHADA, PAGA, PARCIAL
+  payableId       String?           @unique
+  payable         Payable?          @relation(fields: [payableId], references: [id])
+  despesas        CardExpense[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@unique([cardId, mes, ano])
+  @@map("card_invoices")
+}
+
+model ExpenseCategory {
+  id              String            @id @default(cuid())
+  nome            String            @unique // Ex: "Software & SaaS", "Treinamento & Capacitação", "Viagens & Hospedagem", "Marketing", "Escritório & Materiais", "Alimentação & Refeição", "Outros"
+  descricao       String?
+  cor             String            @default("#0B3D91")
+  icone           String?           @default("Tag")
+  despesas        CardExpense[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@map("expense_categories")
+}
+
+model CardExpense {
+  id              String            @id @default(cuid())
+  cardId          String
+  card            CreditCard        @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  invoiceId       String?
+  invoice         CardInvoice?      @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  categoryId      String?
+  category        ExpenseCategory?  @relation(fields: [categoryId], references: [id])
+  dataCompra      DateTime
+  descricao       String            // Ex: "Licença Figma Anual", "Combustível Viagem Cliente X", "Hospedagem AWS"
+  estabelecimento String?           // Nome do local ou fornecedor
+  numeroNf        String?           // Nº da Nota de Compra ou Cupom Fiscal
+  valor           Float             // Valor da compra
+  parcelaAtual    Int               @default(1)
+  totalParcelas   Int               @default(1)
+  observacoes     String?
+  anexos          Attachment[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@map("card_expenses")
 }
 
 model BankStatement {
@@ -248,6 +351,8 @@ model BankStatement {
   banco         String            @default("Sicredi")
   agencia       String?
   conta         String?
+  bankAccountId String?
+  bankAccount   BankAccount?      @relation(fields: [bankAccountId], references: [id])
   mes           Int
   ano           Int
   dataInicio    DateTime?

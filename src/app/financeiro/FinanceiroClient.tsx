@@ -22,6 +22,14 @@ import {
   DollarSign,
   Search,
   Sparkles,
+  Mail,
+  CreditCard as CreditCardIcon,
+  Landmark,
+  PieChart,
+  Tag,
+  Receipt,
+  Layers,
+  ChevronRight,
 } from "lucide-react";
 
 interface FinanceiroClientProps {
@@ -29,13 +37,59 @@ interface FinanceiroClientProps {
 }
 
 export default function FinanceiroClient({ user }: FinanceiroClientProps) {
-  const [activeTab, setActiveTab] = useState<"pagar" | "receber" | "extrato" | "fechamento" | "ia">("pagar");
+  const [activeTab, setActiveTab] = useState<"pagar" | "receber" | "cartao" | "contas" | "extrato" | "fechamento" | "ia">("pagar");
 
   // Dados de Contas a Pagar e Receber
   const [payables, setPayables] = useState<any[]>([]);
   const [receivables, setReceivables] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Contas Bancárias & Saldos Reais
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [showNewAccountModal, setShowNewAccountModal] = useState(false);
+  const [newAccountForm, setNewAccountForm] = useState({
+    banco: "Sicredi",
+    tipo: "CORRENTE",
+    agencia: "",
+    conta: "",
+    descricao: "",
+    saldoInicial: "",
+    cor: "#0B3D91",
+  });
+
+  // Cartões de Crédito & Composição de Fatura
+  const [creditCards, setCreditCards] = useState<any[]>([]);
+  const [cardExpenses, setCardExpenses] = useState<any[]>([]);
+  const [cardAnalytics, setCardAnalytics] = useState<any>(null);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [selectedCardId, setSelectedCardId] = useState<string>("");
+  const [loadingCards, setLoadingCards] = useState(false);
+  const [showNewCardModal, setShowNewCardModal] = useState(false);
+  const [newCardForm, setNewCardForm] = useState({
+    nome: "",
+    bandeira: "MASTERCARD",
+    ultimosDigitos: "",
+    limite: "",
+    diaFechamento: 5,
+    diaVencimento: 15,
+    bankAccountId: "",
+  });
+
+  // Modal para lançamento de compra no cartão (composição da fatura)
+  const [showNewCardExpenseModal, setShowNewCardExpenseModal] = useState(false);
+  const [newCardExpenseForm, setNewCardExpenseForm] = useState({
+    cardId: "",
+    descricao: "",
+    estabelecimento: "",
+    numeroNf: "",
+    valor: "",
+    dataCompra: new Date().toISOString().slice(0, 10),
+    categoryId: "",
+    totalParcelas: "1",
+    observacoes: "",
+  });
 
   // Mês e Ano de competência para filtros e fechamento
   const now = new Date();
@@ -114,9 +168,149 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
     }
   };
 
+  // Carrega contas bancárias
+  const loadBankAccounts = async () => {
+    setLoadingAccounts(true);
+    try {
+      const res = await fetch("/api/financeiro/contas-bancarias");
+      const data = await res.json();
+      if (data.items) setBankAccounts(data.items);
+    } catch (err) {
+      console.error("Erro ao carregar contas bancárias:", err);
+    } finally {
+      setLoadingAccounts(false);
+    }
+  };
+
+  // Carrega cartões e compras
+  const loadCardsAndExpenses = async () => {
+    setLoadingCards(true);
+    try {
+      const resCards = await fetch("/api/financeiro/cartoes");
+      const dataCards = await resCards.json();
+      if (dataCards.items) {
+        setCreditCards(dataCards.items);
+        if (dataCards.items.length > 0 && !selectedCardId) {
+          setSelectedCardId(dataCards.items[0].id);
+        }
+      }
+      if (dataCards.categorias) setCategories(dataCards.categorias);
+
+      const urlExpenses = selectedCardId
+        ? `/api/financeiro/cartoes/despesas?cardId=${selectedCardId}&mes=${selectedMes}&ano=${selectedAno}`
+        : `/api/financeiro/cartoes/despesas?mes=${selectedMes}&ano=${selectedAno}`;
+
+      const resExpenses = await fetch(urlExpenses);
+      const dataExpenses = await resExpenses.json();
+      if (dataExpenses.items) setCardExpenses(dataExpenses.items);
+      if (dataExpenses.analytics) setCardAnalytics(dataExpenses.analytics);
+    } catch (err) {
+      console.error("Erro ao carregar cartões e despesas:", err);
+    } finally {
+      setLoadingCards(false);
+    }
+  };
+
   useEffect(() => {
     loadFinanceiroData();
-  }, [selectedMes, selectedAno]);
+    loadBankAccounts();
+    loadCardsAndExpenses();
+  }, [selectedMes, selectedAno, selectedCardId]);
+
+  // Criação de nova conta bancária
+  const handleCreateAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch("/api/financeiro/contas-bancarias", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newAccountForm),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      setFeedbackMsg({ type: "success", text: "Conta bancária cadastrada com sucesso!" });
+      setShowNewAccountModal(false);
+      setNewAccountForm({
+        banco: "Sicredi",
+        tipo: "CORRENTE",
+        agencia: "",
+        conta: "",
+        descricao: "",
+        saldoInicial: "",
+        cor: "#0B3D91",
+      });
+      loadBankAccounts();
+    } catch (err: any) {
+      setFeedbackMsg({ type: "error", text: err.message || "Erro ao salvar conta bancária." });
+    }
+  };
+
+  // Criação de novo cartão de crédito
+  const handleCreateCard = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch("/api/financeiro/cartoes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newCardForm),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      setFeedbackMsg({ type: "success", text: "Cartão de crédito cadastrado com sucesso!" });
+      setShowNewCardModal(false);
+      setNewCardForm({
+        nome: "",
+        bandeira: "MASTERCARD",
+        ultimosDigitos: "",
+        limite: "",
+        diaFechamento: 5,
+        diaVencimento: 15,
+        bankAccountId: "",
+      });
+      loadCardsAndExpenses();
+    } catch (err: any) {
+      setFeedbackMsg({ type: "error", text: err.message || "Erro ao salvar cartão." });
+    }
+  };
+
+  // Lançamento de compra no cartão (composição da fatura)
+  const handleCreateCardExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const payload = {
+        ...newCardExpenseForm,
+        cardId: newCardExpenseForm.cardId || selectedCardId || creditCards[0]?.id,
+      };
+
+      const res = await fetch("/api/financeiro/cartoes/despesas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      setFeedbackMsg({ type: "success", text: data.message || "Compra lançada na fatura com sucesso!" });
+      setShowNewCardExpenseModal(false);
+      setNewCardExpenseForm({
+        cardId: "",
+        descricao: "",
+        estabelecimento: "",
+        numeroNf: "",
+        valor: "",
+        dataCompra: new Date().toISOString().slice(0, 10),
+        categoryId: "",
+        totalParcelas: "1",
+        observacoes: "",
+      });
+      loadCardsAndExpenses();
+      loadFinanceiroData();
+    } catch (err: any) {
+      setFeedbackMsg({ type: "error", text: err.message || "Erro ao lançar compra no cartão." });
+    }
+  };
 
   // Submissão do novo título a pagar
   const handleCreatePayable = async (e: React.FormEvent) => {
@@ -256,6 +450,35 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
   };
 
   // Análise com IA de documento avulso
+  const [syncingEmail, setSyncingEmail] = useState(false);
+  const [syncEmailResult, setSyncEmailResult] = useState<any>(null);
+
+  const handleSyncGmail = async () => {
+    setSyncingEmail(true);
+    setSyncEmailResult(null);
+    try {
+      const res = await fetch("/api/financeiro/ia/sincronizar-email", {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      setSyncEmailResult(data.data);
+      setFeedbackMsg({
+        type: "success",
+        text: data.message || "E-mails do Gmail sincronizados com sucesso!",
+      });
+      loadFinanceiroData();
+    } catch (err: any) {
+      setFeedbackMsg({
+        type: "error",
+        text: err.message || "Erro ao conectar e sincronizar e-mails do Gmail.",
+      });
+    } finally {
+      setSyncingEmail(false);
+    }
+  };
+
   const handleAnalyzeWithIA = async () => {
     if (!iaFile) return;
     setAnalyzingIa(true);
@@ -444,9 +667,11 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
         {[
           { id: "pagar", label: "Contas a Pagar", icon: ArrowDownRight },
           { id: "receber", label: "Contas a Receber", icon: ArrowUpRight },
+          { id: "cartao", label: "Cartão de Crédito & Faturas", icon: CreditCardIcon },
+          { id: "contas", label: "Contas Bancárias & Saldos", icon: Landmark },
           { id: "extrato", label: "Extrato & Conciliação Sicredi", icon: FileSpreadsheet },
           { id: "fechamento", label: "Fechamento Mensal & Envio", icon: FolderArchive },
-          { id: "ia", label: "Automação com IA", icon: Bot },
+          { id: "ia", label: "Automação com IA & Gmail", icon: Bot },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -670,8 +895,304 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
       )}
 
       {/* ========================================================================= */}
-      {/* ABA 3: EXTRATO & CONCILIAÇÃO SICREDI (MODELO DO PRINT) */}
+      {/* ABA: CARTÃO DE CRÉDITO & FATURAS (COMPOSIÇÃO DE CUSTOS & NOTAS) */}
       {/* ========================================================================= */}
+      {activeTab === "cartao" && (
+        <div className="space-y-6">
+          {/* Topo do Módulo de Cartões */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-card border border-border p-6 rounded-2xl shadow-xs">
+            <div>
+              <h2 className="text-base font-bold text-foreground flex items-center gap-2">
+                <CreditCardIcon className="w-5 h-5 text-[#0B3D91]" />
+                <span>Cartões Corporativos & Composição de Faturas</span>
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Lance notas de compras, cupons fiscais e recibos no cartão. Cada compra compõe a fatura do mês e é categorizada para planejar economias futuras.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowNewCardModal(true)}
+                className="px-3.5 py-2 rounded-xl border border-border text-foreground hover:bg-muted font-semibold text-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Novo Cartão</span>
+              </button>
+              <button
+                onClick={() => setShowNewCardExpenseModal(true)}
+                className="px-4 py-2 rounded-xl bg-[#0B3D91] hover:bg-[#082e6e] text-white font-semibold text-xs flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Receipt className="w-3.5 h-3.5" />
+                <span>Lançar Compra / Nota no Cartão</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Cartões Cadastrados & Faturas */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {creditCards.map((card) => {
+              const isSelected = card.id === selectedCardId;
+              const faturaMes = card.faturas?.find((f: any) => f.mes === selectedMes && f.ano === selectedAno);
+              const valorFatura = faturaMes ? faturaMes.valorTotal : 0;
+
+              return (
+                <div
+                  key={card.id}
+                  onClick={() => setSelectedCardId(card.id)}
+                  className={`p-5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden ${
+                    isSelected
+                      ? "border-[#0B3D91] ring-2 ring-[#0B3D91]/20 bg-gradient-to-br from-[#0B3D91]/5 via-background to-background"
+                      : "border-border bg-card hover:border-slate-400"
+                  }`}
+                >
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span className="font-bold uppercase tracking-wider">{card.bandeira}</span>
+                    <span className="font-mono">•••• {card.ultimosDigitos}</span>
+                  </div>
+
+                  <p className="text-base font-bold text-foreground mt-2">{card.nome}</p>
+
+                  <div className="mt-4 pt-4 border-t border-border grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <span className="text-[10px] text-muted-foreground block uppercase">Fatura {selectedMes}/{selectedAno}</span>
+                      <strong className="text-sm font-mono text-[#0B3D91]">
+                        R$ {valorFatura.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-muted-foreground block uppercase">Fecha / Vence</span>
+                      <span className="font-mono font-semibold">Dia {card.diaFechamento} / {card.diaVencimento}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Gráfico / Mapeamento de Onde Mais Gastamos (Analytics de Economia) */}
+          {cardAnalytics && cardAnalytics.rankingCategorias?.length > 0 && (
+            <div className="bg-card border border-border p-6 rounded-2xl shadow-xs space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                    <PieChart className="w-4 h-4 text-[#FF7A00]" />
+                    <span>Mapeamento de Gastos por Categoria (Onde economizar)</span>
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Total gasto no cartão no período: <strong>R$ {cardAnalytics.totalGeral.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</strong> em <strong>{cardAnalytics.totalCompras} compras</strong>
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2">
+                {cardAnalytics.rankingCategorias.map((cat: any, idx: number) => {
+                  const perc = cardAnalytics.totalGeral > 0 ? (cat.total / cardAnalytics.totalGeral) * 100 : 0;
+                  return (
+                    <div key={idx} className="p-3.5 rounded-xl border border-border bg-muted/20 space-y-1.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-foreground truncate">{cat.nome}</span>
+                        <span className="font-mono font-bold text-muted-foreground">{perc.toFixed(1)}%</span>
+                      </div>
+                      <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{ width: `${perc}%`, backgroundColor: cat.cor || "#0B3D91" }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] pt-1">
+                        <span className="text-muted-foreground">{cat.qtd} compra(s)</span>
+                        <strong className="font-mono text-foreground">
+                          R$ {cat.total.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                        </strong>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Tabela de Compras que Compõem a Fatura do Mês */}
+          <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-xs">
+            <div className="p-4 sm:p-6 border-b border-border flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                  <Receipt className="w-4 h-4 text-[#0B3D91]" />
+                  <span>Notas e Compras da Fatura ({selectedMes}/{selectedAno})</span>
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Notas de compras, cupons fiscais e serviços que compõem o valor a pagar do cartão
+                </p>
+              </div>
+
+              <button
+                onClick={() => setShowNewCardExpenseModal(true)}
+                className="px-3 py-1.5 rounded-xl bg-[#0B3D91] text-white text-xs font-semibold flex items-center gap-1 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Nova Compra</span>
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 dark:bg-slate-900/60 border-b border-border text-muted-foreground uppercase font-semibold">
+                  <tr>
+                    <th className="py-3 px-4">Data Compra</th>
+                    <th className="py-3 px-4">Descrição / Estabelecimento</th>
+                    <th className="py-3 px-4">Categoria de Custo</th>
+                    <th className="py-3 px-4 font-mono">Nº NF / Cupom</th>
+                    <th className="py-3 px-4 text-center">Parcela</th>
+                    <th className="py-3 px-4 text-right">Valor da Compra</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {cardExpenses.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-muted-foreground">
+                        Nenhuma compra lançada na fatura deste cartão no período.
+                      </td>
+                    </tr>
+                  ) : (
+                    cardExpenses.map((exp) => (
+                      <tr key={exp.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/30">
+                        <td className="py-3 px-4 font-mono">
+                          {new Date(exp.dataCompra).toLocaleDateString("pt-BR")}
+                        </td>
+                        <td className="py-3 px-4">
+                          <p className="font-semibold text-foreground">{exp.descricao}</p>
+                          {exp.estabelecimento && (
+                            <p className="text-[10px] text-muted-foreground">{exp.estabelecimento}</p>
+                          )}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold"
+                            style={{
+                              backgroundColor: `${exp.category?.cor || "#64748B"}15`,
+                              color: exp.category?.cor || "#64748B",
+                            }}
+                          >
+                            <Tag className="w-2.5 h-2.5" />
+                            <span>{exp.category?.nome || "Outros Gastos"}</span>
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 font-mono">
+                          {exp.numeroNf ? (
+                            <span className="font-bold text-[#0B3D91]">{exp.numeroNf}</span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono text-muted-foreground">
+                          {exp.parcelaAtual} / {exp.totalParcelas}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-bold text-foreground">
+                          R$ {exp.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ABA: CONTAS BANCÁRIAS & CONTROLE DE SALDO */}
+      {/* ========================================================================= */}
+      {activeTab === "contas" && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-card border border-border p-6 rounded-2xl shadow-xs">
+            <div>
+              <h2 className="text-base font-bold text-foreground flex items-center gap-2">
+                <Landmark className="w-5 h-5 text-[#0B3D91]" />
+                <span>Contas Bancárias & Controle de Saldo Real</span>
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Acompanhe o saldo inicial, as entradas baixadas e as saídas pagas calculando exatamente quanto deve ter em conta.
+              </p>
+            </div>
+
+            <button
+              onClick={() => setShowNewAccountModal(true)}
+              className="px-4 py-2 rounded-xl bg-[#0B3D91] hover:bg-[#082e6e] text-white font-semibold text-xs flex items-center gap-1.5 shadow-xs cursor-pointer self-start sm:self-auto"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Nova Conta Bancária</span>
+            </button>
+          </div>
+
+          {/* Cards de Contas Bancárias com Saldo Calculado */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {bankAccounts.map((account) => (
+              <div
+                key={account.id}
+                className="bg-card border border-border p-6 rounded-2xl shadow-xs space-y-4 relative overflow-hidden"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-bold text-muted-foreground uppercase">{account.banco}</span>
+                    <h3 className="text-base font-bold text-foreground">{account.descricao}</h3>
+                  </div>
+                  <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-sm"
+                    style={{ backgroundColor: account.cor || "#0B3D91" }}
+                  >
+                    <Landmark className="w-5 h-5" />
+                  </div>
+                </div>
+
+                <div className="text-xs font-mono text-muted-foreground flex gap-4">
+                  <span>Agência: <strong>{account.agencia}</strong></span>
+                  <span>Conta: <strong>{account.conta}</strong></span>
+                </div>
+
+                <div className="pt-3 border-t border-border space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Saldo Inicial Cadastrado:</span>
+                    <span className="font-mono">R$ {account.saldoInicial.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-emerald-600 flex items-center gap-1">
+                      <ArrowUpRight className="w-3.5 h-3.5" />
+                      Recebimentos Baixados:
+                    </span>
+                    <span className="font-mono text-emerald-600 font-semibold">
+                      + R$ {(account.totalEntradas || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-red-600 flex items-center gap-1">
+                      <ArrowDownRight className="w-3.5 h-3.5" />
+                      Pagamentos Efetuados:
+                    </span>
+                    <span className="font-mono text-red-600 font-semibold">
+                      - R$ {(account.totalSaidas || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  <div className="pt-2 border-t border-border flex items-center justify-between">
+                    <span className="text-xs font-bold text-foreground uppercase">Saldo Real Atual:</span>
+                    <strong
+                      className={`text-lg font-mono font-bold ${
+                        (account.saldoCalculado ?? account.saldoInicial) >= 0 ? "text-foreground" : "text-red-600"
+                      }`}
+                    >
+                      R$ {(account.saldoCalculado ?? account.saldoInicial).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {activeTab === "extrato" && (
         <div className="space-y-6">
           {/* Card de Importação dos 3 Arquivos */}
@@ -965,10 +1486,86 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
       )}
 
       {/* ========================================================================= */}
-      {/* ABA 5: AUTOMAÇÃO COM IA (GEMINI MULTIMODAL) */}
+      {/* ABA 5: AUTOMAÇÃO COM IA (GEMINI MULTIMODAL & GMAIL) */}
       {/* ========================================================================= */}
       {activeTab === "ia" && (
         <div className="space-y-6">
+          {/* Caixa de Sincronização do Marcador Gmail */}
+          <div className="bg-gradient-to-r from-[#0B3D91]/10 via-[#00A6FF]/10 to-transparent border border-[#0B3D91]/20 p-6 rounded-2xl shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#0B3D91] text-white">
+                  <Mail className="w-3 h-3" />
+                  E-mail Oficial: apaaerp@gmail.com
+                </span>
+                <h3 className="text-base font-bold text-foreground">
+                  Captura Automática por Marcador do Gmail
+                </h3>
+                <p className="text-xs text-muted-foreground max-w-xl">
+                  O app acessa a caixa do <strong>apaaerp@gmail.com</strong>, lê os e-mails com notas, comprovantes e boletos anexados, processa os arquivos com IA e efetua os lançamentos e baixas correspondentes.
+                </p>
+              </div>
+
+              <button
+                onClick={handleSyncGmail}
+                disabled={syncingEmail}
+                className="px-5 py-3 rounded-xl bg-[#0B3D91] hover:bg-[#082e6e] text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50 shrink-0"
+              >
+                {syncingEmail ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Conectando e Lendo E-mails...</span>
+                  </>
+                ) : (
+                  <>
+                    <Mail className="w-4 h-4" />
+                    <span>Verificar e Importar E-mails Agora</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Resultado da Sincronização do Gmail */}
+            {syncEmailResult && (
+              <div className="mt-4 p-4 rounded-xl bg-card border border-border text-xs space-y-2">
+                <p className="font-bold text-emerald-600 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Sincronização com o Gmail Concluída!</span>
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-center font-mono">
+                  <div className="p-2 rounded-lg bg-muted/40">
+                    <span className="text-[10px] text-muted-foreground block font-sans">E-mails Lidos</span>
+                    <strong className="text-sm">{syncEmailResult.totalEmailsProcessados}</strong>
+                  </div>
+                  <div className="p-2 rounded-lg bg-muted/40">
+                    <span className="text-[10px] text-muted-foreground block font-sans">Anexos Lidos</span>
+                    <strong className="text-sm">{syncEmailResult.totalAnexosProcessados}</strong>
+                  </div>
+                  <div className="p-2 rounded-lg bg-red-50 dark:bg-red-950/30 text-red-600">
+                    <span className="text-[10px] block font-sans">Contas a Pagar</span>
+                    <strong className="text-sm">{syncEmailResult.contasPagarCriadas}</strong>
+                  </div>
+                  <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600">
+                    <span className="text-[10px] block font-sans">Contas a Receber</span>
+                    <strong className="text-sm">{syncEmailResult.contasReceberCriadas}</strong>
+                  </div>
+                </div>
+                {syncEmailResult.baixasEfetuadas > 0 && (
+                  <p className="text-[11px] text-emerald-700 font-semibold pt-1">
+                    ✔ {syncEmailResult.baixasEfetuadas} comprovante(s) liquidaram contas pendentes automaticamente.
+                  </p>
+                )}
+                {syncEmailResult.erros && syncEmailResult.erros.length > 0 && (
+                  <div className="text-[11px] text-red-600 pt-1">
+                    {syncEmailResult.erros.map((err: string, idx: number) => (
+                      <p key={idx}>⚠ {err}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="bg-card border border-border p-6 rounded-2xl shadow-xs">
             <div className="flex items-center gap-3 mb-2">
               <div className="w-9 h-9 rounded-xl bg-[#FF7A00]/10 text-[#FF7A00] flex items-center justify-center">
@@ -1224,6 +1821,388 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: NOVA CONTA BANCÁRIA */}
+      {/* ========================================================================= */}
+      {showNewAccountModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4 text-xs">
+            <h3 className="text-base font-bold text-foreground">Cadastrar Conta Bancária</h3>
+            <form onSubmit={handleCreateAccount} className="space-y-3">
+              <div>
+                <label className="block font-semibold text-muted-foreground mb-1">Nome / Descrição da Conta</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Sicredi Principal APAA"
+                  value={newAccountForm.descricao}
+                  onChange={(e) => setNewAccountForm({ ...newAccountForm, descricao: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-border bg-background focus:ring-2 focus:ring-[#00A6FF] outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Instituição Bancária</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Sicredi, Itaú, BB"
+                    value={newAccountForm.banco}
+                    onChange={(e) => setNewAccountForm({ ...newAccountForm, banco: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background focus:ring-2 focus:ring-[#00A6FF] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Tipo de Conta</label>
+                  <select
+                    value={newAccountForm.tipo}
+                    onChange={(e) => setNewAccountForm({ ...newAccountForm, tipo: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background focus:ring-2 focus:ring-[#00A6FF] outline-none cursor-pointer"
+                  >
+                    <option value="CORRENTE">Conta Corrente</option>
+                    <option value="POUPANCA">Poupança</option>
+                    <option value="INVESTIMENTO">Investimento</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Agência</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: 0101"
+                    value={newAccountForm.agencia}
+                    onChange={(e) => setNewAccountForm({ ...newAccountForm, agencia: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono focus:ring-2 focus:ring-[#00A6FF] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Número da Conta</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: 12345-6"
+                    value={newAccountForm.conta}
+                    onChange={(e) => setNewAccountForm({ ...newAccountForm, conta: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono focus:ring-2 focus:ring-[#00A6FF] outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-muted-foreground mb-1">Saldo Inicial (R$)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={newAccountForm.saldoInicial}
+                  onChange={(e) => setNewAccountForm({ ...newAccountForm, saldoInicial: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono focus:ring-2 focus:ring-[#00A6FF] outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNewAccountModal(false)}
+                  className="px-4 py-2 rounded-xl border border-border text-muted-foreground font-semibold hover:bg-slate-100 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-[#0B3D91] text-white font-semibold shadow-sm hover:bg-[#082e6e] cursor-pointer"
+                >
+                  Salvar Conta
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: NOVO CARTÃO DE CRÉDITO */}
+      {/* ========================================================================= */}
+      {showNewCardModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4 text-xs">
+            <h3 className="text-base font-bold text-foreground">Novo Cartão de Crédito Corporativo</h3>
+            <form onSubmit={handleCreateCard} className="space-y-3">
+              <div>
+                <label className="block font-semibold text-muted-foreground mb-1">Nome Identificador do Cartão</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Sicredi Mastercard Corporativo"
+                  value={newCardForm.nome}
+                  onChange={(e) => setNewCardForm({ ...newCardForm, nome: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-border bg-background focus:ring-2 focus:ring-[#00A6FF] outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Bandeira</label>
+                  <select
+                    value={newCardForm.bandeira}
+                    onChange={(e) => setNewCardForm({ ...newCardForm, bandeira: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background focus:ring-2 focus:ring-[#00A6FF] outline-none cursor-pointer"
+                  >
+                    <option value="MASTERCARD">Mastercard</option>
+                    <option value="VISA">Visa</option>
+                    <option value="ELO">Elo</option>
+                    <option value="AMEX">American Express</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Últimos 4 Dígitos</label>
+                  <input
+                    type="text"
+                    maxLength={4}
+                    placeholder="Ex: 4321"
+                    value={newCardForm.ultimosDigitos}
+                    onChange={(e) => setNewCardForm({ ...newCardForm, ultimosDigitos: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono focus:ring-2 focus:ring-[#00A6FF] outline-none text-center"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Limite (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={newCardForm.limite}
+                    onChange={(e) => setNewCardForm({ ...newCardForm, limite: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono focus:ring-2 focus:ring-[#00A6FF] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Dia Fechamento</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    required
+                    value={newCardForm.diaFechamento}
+                    onChange={(e) => setNewCardForm({ ...newCardForm, diaFechamento: Number(e.target.value) })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono focus:ring-2 focus:ring-[#00A6FF] outline-none text-center"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Dia Vencimento</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    required
+                    value={newCardForm.diaVencimento}
+                    onChange={(e) => setNewCardForm({ ...newCardForm, diaVencimento: Number(e.target.value) })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono focus:ring-2 focus:ring-[#00A6FF] outline-none text-center"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-muted-foreground mb-1">Conta para Débito da Fatura (Opcional)</label>
+                <select
+                  value={newCardForm.bankAccountId}
+                  onChange={(e) => setNewCardForm({ ...newCardForm, bankAccountId: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-border bg-background focus:ring-2 focus:ring-[#00A6FF] outline-none cursor-pointer"
+                >
+                  <option value="">Selecione uma conta vinculada</option>
+                  {bankAccounts.map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.banco} - {acc.descricao} (Ag: {acc.agencia} / Cc: {acc.conta})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNewCardModal(false)}
+                  className="px-4 py-2 rounded-xl border border-border text-muted-foreground font-semibold hover:bg-slate-100 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-[#0B3D91] text-white font-semibold shadow-sm hover:bg-[#082e6e] cursor-pointer"
+                >
+                  Salvar Cartão
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: LANÇAR COMPRA / NOTA NO CARTÃO (COMPOSIÇÃO DA FATURA) */}
+      {/* ========================================================================= */}
+      {showNewCardExpenseModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4 text-xs animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#0B3D91] text-white flex items-center justify-center shrink-0 shadow-sm">
+                <Receipt className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-foreground">Lançar Compra / Nota no Cartão</h3>
+                <p className="text-muted-foreground text-xs">
+                  Esta despesa compõe automaticamente a fatura do cartão e alimenta o gráfico de custos para economia.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleCreateCardExpense} className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Cartão Utilizado</label>
+                  <select
+                    required
+                    value={newCardExpenseForm.cardId || selectedCardId}
+                    onChange={(e) => setNewCardExpenseForm({ ...newCardExpenseForm, cardId: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background focus:ring-2 focus:ring-[#00A6FF] outline-none cursor-pointer"
+                  >
+                    {creditCards.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nome} (•••• {c.ultimosDigitos})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Categoria de Custo</label>
+                  <select
+                    value={newCardExpenseForm.categoryId}
+                    onChange={(e) => setNewCardExpenseForm({ ...newCardExpenseForm, categoryId: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background focus:ring-2 focus:ring-[#00A6FF] outline-none cursor-pointer"
+                  >
+                    <option value="">Selecione para mapear gastos</option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.nome}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-muted-foreground mb-1">Descrição da Compra / Serviço</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Licença Canva Pro, Material de Escritório, Hospedagem"
+                  value={newCardExpenseForm.descricao}
+                  onChange={(e) => setNewCardExpenseForm({ ...newCardExpenseForm, descricao: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-border bg-background focus:ring-2 focus:ring-[#00A6FF] outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Estabelecimento / Loja</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Kalunga, Google, Amazon"
+                    value={newCardExpenseForm.estabelecimento}
+                    onChange={(e) => setNewCardExpenseForm({ ...newCardExpenseForm, estabelecimento: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background focus:ring-2 focus:ring-[#00A6FF] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Nº Nota Fiscal / Cupom</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: NF-e 12450"
+                    value={newCardExpenseForm.numeroNf}
+                    onChange={(e) => setNewCardExpenseForm({ ...newCardExpenseForm, numeroNf: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono focus:ring-2 focus:ring-[#00A6FF] outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Valor Total (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    placeholder="0.00"
+                    value={newCardExpenseForm.valor}
+                    onChange={(e) => setNewCardExpenseForm({ ...newCardExpenseForm, valor: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono font-bold focus:ring-2 focus:ring-[#00A6FF] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Data da Compra</label>
+                  <input
+                    type="date"
+                    required
+                    value={newCardExpenseForm.dataCompra}
+                    onChange={(e) => setNewCardExpenseForm({ ...newCardExpenseForm, dataCompra: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background focus:ring-2 focus:ring-[#00A6FF] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Parcelas</label>
+                  <select
+                    value={newCardExpenseForm.totalParcelas}
+                    onChange={(e) => setNewCardExpenseForm({ ...newCardExpenseForm, totalParcelas: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background focus:ring-2 focus:ring-[#00A6FF] outline-none cursor-pointer"
+                  >
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((p) => (
+                      <option key={p} value={p}>
+                        {p}x {p === 1 ? "(À vista)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-muted-foreground mb-1">Observações (Opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Detalhes ou justificativa do custo..."
+                  value={newCardExpenseForm.observacoes}
+                  onChange={(e) => setNewCardExpenseForm({ ...newCardExpenseForm, observacoes: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-border bg-background focus:ring-2 focus:ring-[#00A6FF] outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNewCardExpenseModal(false)}
+                  className="px-4 py-2 rounded-xl border border-border text-muted-foreground font-semibold hover:bg-slate-100 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-[#0B3D91] hover:bg-[#082e6e] text-white font-semibold shadow-sm cursor-pointer"
+                >
+                  Confirmar Lançamento na Fatura
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
