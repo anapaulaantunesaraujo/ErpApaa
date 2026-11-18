@@ -26,7 +26,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV PORT=3000
+ENV PORT=8080
 ENV HOSTNAME="0.0.0.0"
 
 # Copy prisma files and required runtime items
@@ -42,7 +42,7 @@ COPY --from=builder /app/public ./public
 
 RUN chmod +x ./docker-entrypoint.sh
 
-EXPOSE 3000
+EXPOSE 8080 3000
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
 
