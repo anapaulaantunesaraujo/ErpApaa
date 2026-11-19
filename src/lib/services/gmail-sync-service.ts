@@ -49,13 +49,16 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
   try {
     await client.connect();
 
-    // 1. Lista as caixas/marcadores existentes para encontrar o nome exato (ex: "Financeiro" ou "APAA_FINANCEIRO")
+    // 1. Lista as caixas/marcadores existentes para encontrar o nome exato (incluindo sub-marcadores como "Contabilidade/Comprovantes/Comprovantes empresa/SALVOS")
     const mailboxes = await client.list();
     let targetFolder = "";
 
     const candidateNames = [
       configuredFolder.toLowerCase(),
       "financeiro",
+      "salvos",
+      "comprovantes empresa/salvos",
+      "contabilidade/comprovantes/comprovantes empresa/salvos",
       "apaa_financeiro",
       "apaa financeiro",
     ];
@@ -85,7 +88,7 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
     }
 
     try {
-      // 2. Busca e-mails na pasta (todos ou os 20 mais recentes)
+      // 2. Busca e-mails na pasta (todos)
       const messages = client.fetch("1:*", { source: true, uid: true, envelope: true });
 
       const uploadDir = path.join(process.cwd(), "public", "uploads", "anexos");
@@ -93,6 +96,32 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
 
       const now = new Date();
       const competencia = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+      // Função recursiva para desempacotar e-mails anexados (.eml / message/rfc822)
+      async function extrairTodosOsAnexos(parsedMail: any): Promise<Array<{ buffer: Buffer; fileName: string; mimeType: string }>> {
+        const lista: Array<{ buffer: Buffer; fileName: string; mimeType: string }> = [];
+
+        for (const att of parsedMail.attachments || []) {
+          const fn = att.filename || `anexo_${Date.now()}.bin`;
+          const ct = (att.contentType || "").toLowerCase();
+
+          // Se o anexo for um e-mail encaminhado (.eml ou message/rfc822)
+          if (ct.includes("message/rfc822") || fn.toLowerCase().endsWith(".eml")) {
+            try {
+              const subMail: any = await simpleParser(att.content);
+              const subAnexos = await extrairTodosOsAnexos(subMail);
+              lista.push(...subAnexos);
+            } catch (emlErr) {
+              console.warn(`Erro ao desempacotar e-mail anexado ${fn}:`, emlErr);
+              lista.push({ buffer: att.content, fileName: fn, mimeType: att.contentType });
+            }
+          } else {
+            lista.push({ buffer: att.content, fileName: fn, mimeType: att.contentType || "application/octet-stream" });
+          }
+        }
+
+        return lista;
+      }
 
       for await (const message of messages) {
         if (!message.source) continue;
@@ -109,13 +138,16 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
         let totalAnexosMsg = 0;
         const detalhesItens: string[] = [];
 
-        for (const attachment of parsed.attachments) {
+        // Extrai anexos diretos e também anexos de dentro de e-mails encaminhados (.eml)
+        const todosOsAnexos = await extrairTodosOsAnexos(parsed);
+
+        for (const anexoItem of todosOsAnexos) {
           result.totalAnexosProcessados++;
           totalAnexosMsg++;
 
-          const buffer = attachment.content;
-          const fileName = attachment.filename || `anexo_${Date.now()}.bin`;
-          const mimeType = attachment.contentType || "application/octet-stream";
+          const buffer = anexoItem.buffer;
+          const fileName = anexoItem.fileName;
+          const mimeType = anexoItem.mimeType;
 
           // Salva anexo em disco
           const safeOriginalName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
