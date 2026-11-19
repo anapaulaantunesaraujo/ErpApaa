@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Montserrat:wght@400;500;600;700;800&family=Open+Sans:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 /**
@@ -61,10 +62,10 @@
     linear-gradient(90deg, rgba(0, 166, 255, 0.08) 1px, transparent 1px);
   --apaa-grid-size: 48px 48px;
 
-  /* Tipografia */
-  --font-display: var(--font-montserrat), "Montserrat", sans-serif;
-  --font-sans: var(--font-open-sans), "Open Sans", sans-serif;
-  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", monospace;
+  /* Tipografia com fallbacks nativos limpos */
+  --font-display: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Open Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 @theme {
