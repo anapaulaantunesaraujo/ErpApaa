@@ -269,23 +269,7 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
         },
       });
 
-      if (!payContab) {
-        payContab = await prisma.payable.create({
-          data: {
-            descricao: "Honorários de Contabilidade",
-            fornecedorNome: "Escritório de Contabilidade",
-            categoria: "BOLETO",
-            linhaDigitavel: "74891126280372522606631719481009116320000075000",
-            valorOriginal: 750.0,
-            valorPago: 750.0,
-            status: "PAGO",
-            dataCompetencia: new Date("2026-11-01"),
-            dataVencimento: new Date("2026-11-06"),
-            dataPagamento: new Date("2026-11-06"),
-            origem: "EMAIL_IA",
-          },
-        });
-      } else {
+      if (payContab) {
         await prisma.payable.update({
           where: { id: payContab.id },
           data: {
@@ -299,44 +283,44 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
             linhaDigitavel: "74891126280372522606631719481009116320000075000",
           },
         });
-      }
 
-      await prisma.attachment.update({
-        where: { id: attContab.id },
-        data: { payableId: payContab.id },
-      });
-
-      const prContab = await prisma.paymentRecord.findFirst({ where: { payableId: payContab.id } });
-      if (!prContab) {
-        await prisma.paymentRecord.create({
-          data: {
-            tipo: "PAGAMENTO",
-            payableId: payContab.id,
-            data: new Date("2026-11-06"),
-            valor: 750.0,
-            formaPagamento: "PIX",
-            comprovanteAnexoId: attContab.id,
-            observacoes: "Comprovante Honorários Contabilidade",
-          },
-        });
-      }
-
-      // Vincula também o boleto.pdf aos Honorários de Contabilidade (unificando boleto + comprovante)
-      const attBoletoPdf = await prisma.attachment.findFirst({
-        where: { nomeOriginal: "boleto.pdf" },
-      });
-      if (attBoletoPdf) {
         await prisma.attachment.update({
-          where: { id: attBoletoPdf.id },
-          data: { payableId: payContab.id, receivableId: null, categoria: "BOLETO" },
+          where: { id: attContab.id },
+          data: { payableId: payContab.id },
         });
+
+        const prContab = await prisma.paymentRecord.findFirst({ where: { payableId: payContab.id } });
+        if (!prContab) {
+          await prisma.paymentRecord.create({
+            data: {
+              tipo: "PAGAMENTO",
+              payableId: payContab.id,
+              data: new Date("2026-11-06"),
+              valor: 750.0,
+              formaPagamento: "PIX",
+              comprovanteAnexoId: attContab.id,
+              observacoes: "Comprovante Honorários Contabilidade",
+            },
+          });
+        }
+
+        // Vincula também o boleto.pdf aos Honorários de Contabilidade (unificando boleto + comprovante)
+        const attBoletoPdf = await prisma.attachment.findFirst({
+          where: { nomeOriginal: "boleto.pdf" },
+        });
+        if (attBoletoPdf) {
+          await prisma.attachment.update({
+            where: { id: attBoletoPdf.id },
+            data: { payableId: payContab.id, receivableId: null, categoria: "BOLETO" },
+          });
+        }
       }
 
       // Expurga qualquer DAS de R$ 750,00 gerado erroneamente a partir do boleto.pdf
       const bogusDas750 = await prisma.payable.findMany({
         where: {
           valorOriginal: 750.0,
-          id: { not: payContab.id },
+          ...(payContab ? { id: { not: payContab.id } } : {}),
         },
         include: { anexos: true },
       });
@@ -365,23 +349,7 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
         },
       });
 
-      if (!payUnimed) {
-        payUnimed = await prisma.payable.create({
-          data: {
-            descricao: "Plano de Saúde Unimed",
-            fornecedorNome: "Unimed",
-            categoria: "BOLETO",
-            linhaDigitavel: "13691315010001764272900961006269616260000159610",
-            valorOriginal: 1596.1,
-            valorPago: 1596.1,
-            status: "PAGO",
-            dataCompetencia: new Date("2026-11-01"),
-            dataVencimento: new Date("2026-11-06"),
-            dataPagamento: new Date("2026-11-06"),
-            origem: "EMAIL_IA",
-          },
-        });
-      } else {
+      if (payUnimed) {
         await prisma.payable.update({
           where: { id: payUnimed.id },
           data: {
@@ -395,26 +363,26 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
             linhaDigitavel: "13691315010001764272900961006269616260000159610",
           },
         });
-      }
 
-      await prisma.attachment.update({
-        where: { id: attUnimed.id },
-        data: { payableId: payUnimed.id },
-      });
-
-      const prUnimed = await prisma.paymentRecord.findFirst({ where: { payableId: payUnimed.id } });
-      if (!prUnimed) {
-        await prisma.paymentRecord.create({
-          data: {
-            tipo: "PAGAMENTO",
-            payableId: payUnimed.id,
-            data: new Date("2026-11-06"),
-            valor: 1596.1,
-            formaPagamento: "PIX",
-            comprovanteAnexoId: attUnimed.id,
-            observacoes: "Comprovante Plano de Saúde Unimed",
-          },
+        await prisma.attachment.update({
+          where: { id: attUnimed.id },
+          data: { payableId: payUnimed.id },
         });
+
+        const prUnimed = await prisma.paymentRecord.findFirst({ where: { payableId: payUnimed.id } });
+        if (!prUnimed) {
+          await prisma.paymentRecord.create({
+            data: {
+              tipo: "PAGAMENTO",
+              payableId: payUnimed.id,
+              data: new Date("2026-11-06"),
+              valor: 1596.1,
+              formaPagamento: "PIX",
+              comprovanteAnexoId: attUnimed.id,
+              observacoes: "Comprovante Plano de Saúde Unimed",
+            },
+          });
+        }
       }
     }
 
@@ -428,22 +396,7 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
       },
     });
 
-    if (!payClaro) {
-      payClaro = await prisma.payable.create({
-        data: {
-          descricao: "Fatura Digital Claro",
-          fornecedorNome: "Claro Telecom",
-          fornecedorCpfCnpj: "40.432.544/0191-66",
-          categoria: "BOLETO",
-          valorOriginal: 20.0,
-          valorPago: 0,
-          status: "PENDENTE",
-          dataCompetencia: new Date("2026-11-01"),
-          dataVencimento: new Date("2026-11-22"),
-          origem: "EMAIL_IA",
-        },
-      });
-    } else {
+    if (payClaro) {
       await prisma.payable.update({
         where: { id: payClaro.id },
         data: {
@@ -452,30 +405,29 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
           fornecedorCpfCnpj: "40.432.544/0191-66",
           valorOriginal: 20.0,
           dataVencimento: new Date("2026-11-22"),
-          status: "PENDENTE",
         },
       });
-    }
 
-    // Vincula o anexo fatura.pdf especificamente à Claro Telecom
-    const attFaturaClaro = await prisma.attachment.findFirst({
-      where: {
-        OR: [
-          { nomeOriginal: "fatura.pdf" },
-          { nomeOriginal: { contains: "claro", mode: "insensitive" } },
-        ],
-      },
-    });
-
-    if (attFaturaClaro) {
-      await prisma.attachment.update({
-        where: { id: attFaturaClaro.id },
-        data: {
-          payableId: payClaro.id,
-          receivableId: null,
-          categoria: "DOCUMENTO",
+      // Vincula o anexo fatura.pdf especificamente à Claro Telecom
+      const attFaturaClaro = await prisma.attachment.findFirst({
+        where: {
+          OR: [
+            { nomeOriginal: "fatura.pdf" },
+            { nomeOriginal: { contains: "claro", mode: "insensitive" } },
+          ],
         },
       });
+
+      if (attFaturaClaro) {
+        await prisma.attachment.update({
+          where: { id: attFaturaClaro.id },
+          data: {
+            payableId: payClaro.id,
+            receivableId: null,
+            categoria: "DOCUMENTO",
+          },
+        });
+      }
     }
 
     // Expurga títulos vazios gerados por arquivos protegidos por senha (ex: SuaContaClaro_Nov-2026.pdf)
@@ -603,22 +555,7 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
       },
     });
 
-    if (!payDistribuicao) {
-      payDistribuicao = await prisma.payable.create({
-        data: {
-          descricao: "Distribuição de Resultados / Lucros",
-          fornecedorNome: "Sócios APAA",
-          categoria: "OUTROS",
-          valorOriginal: 4411.0,
-          valorPago: 4411.0,
-          status: "PAGO",
-          dataCompetencia: new Date("2026-11-01"),
-          dataVencimento: new Date("2026-11-03"),
-          dataPagamento: new Date("2026-11-03"),
-          origem: "EMAIL_IA",
-        },
-      });
-    } else {
+    if (payDistribuicao) {
       await prisma.payable.update({
         where: { id: payDistribuicao.id },
         data: {
@@ -631,17 +568,17 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
           dataPagamento: new Date("2026-11-03"),
         },
       });
-    }
 
-    // O comprovante sicredi_17937067685... pertence EXCLUSIVAMENTE à Distribuição de Resultados
-    const attDistrComp = await prisma.attachment.findFirst({
-      where: { nomeOriginal: { contains: "17937067685" } },
-    });
-    if (attDistrComp) {
-      await prisma.attachment.update({
-        where: { id: attDistrComp.id },
-        data: { payableId: payDistribuicao.id, receivableId: null, categoria: "COMPROVANTE" },
+      // O comprovante sicredi_17937067685... pertence EXCLUSIVAMENTE à Distribuição de Resultados
+      const attDistrComp = await prisma.attachment.findFirst({
+        where: { nomeOriginal: { contains: "17937067685" } },
       });
+      if (attDistrComp) {
+        await prisma.attachment.update({
+          where: { id: attDistrComp.id },
+          data: { payableId: payDistribuicao.id, receivableId: null, categoria: "COMPROVANTE" },
+        });
+      }
     }
 
     // 4.2. Garante o título legítimo de DAS - Simples Nacional (R$ 581,58)
@@ -654,32 +591,17 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
       },
     });
 
-    if (!payDasReal) {
-      payDasReal = await prisma.payable.create({
-        data: {
-          descricao: "DAS - Simples Nacional",
-          fornecedorNome: "Receita Federal / Simples Nacional",
-          categoria: "IMPOSTO",
-          valorOriginal: 581.58,
-          valorPago: 581.58,
-          status: "PAGO",
-          dataCompetencia: new Date("2026-11-01"),
-          dataVencimento: new Date("2026-11-17"),
-          dataPagamento: new Date("2026-11-17"),
-          origem: "EMAIL_IA",
-        },
+    if (payDasReal) {
+      // O boleto das.pdf pertence ao DAS real (R$ 581,58) e NUNCA à Distribuição de Resultados
+      const attDasPdf = await prisma.attachment.findFirst({
+        where: { nomeOriginal: "das.pdf" },
       });
-    }
-
-    // O boleto das.pdf pertence ao DAS real (R$ 581,58) e NUNCA à Distribuição de Resultados
-    const attDasPdf = await prisma.attachment.findFirst({
-      where: { nomeOriginal: "das.pdf" },
-    });
-    if (attDasPdf) {
-      await prisma.attachment.update({
-        where: { id: attDasPdf.id },
-        data: { payableId: payDasReal.id, receivableId: null, categoria: "BOLETO" },
-      });
+      if (attDasPdf) {
+        await prisma.attachment.update({
+          where: { id: attDasPdf.id },
+          data: { payableId: payDasReal.id, receivableId: null, categoria: "BOLETO" },
+        });
+      }
     }
 
     // Expurga títulos fantasmas ou duplicados de DAS com valor R$ 4.411,00
@@ -687,7 +609,7 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
       where: {
         valorOriginal: 4411.0,
         descricao: { contains: "DAS", mode: "insensitive" },
-        id: { not: payDistribuicao.id },
+        ...(payDistribuicao ? { id: { not: payDistribuicao.id } } : {}),
       },
     });
     for (const fd of fakeDas4411) {
