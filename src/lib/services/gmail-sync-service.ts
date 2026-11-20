@@ -6,6 +6,7 @@ import {
   analyzeFinancialDocumentWithAI,
   advancedHeuristicDocumentParser,
 } from "./ai-document-analyzer";
+import { parseOfx } from "./ofx-parser";
 import { addAuditLog } from "./audit-logger";
 import path from "path";
 import fs from "fs/promises";
@@ -160,7 +161,18 @@ export async function extrairTodosOsAnexos(
 // Identifica a categoria semântica estrita do documento sem se confundir com o banco emissor (Sicredi)
 export function identificarCategoriaDocumento(texto: string): string | null {
   const t = texto.toLowerCase();
-  if (t.includes("claro") || t.includes("net ") || t.includes("embratel") || t.includes("minhaclaro") || t.includes("40.432.544")) {
+
+  // Extrato bancário NUNCA é agrupado sob contas a pagar (e não se confunde com Claro)
+  if (
+    t.includes(".ofx") ||
+    t.includes("<ofx>") ||
+    t.includes("ofxheader") ||
+    (t.includes("extrato") && (t.includes("período de") || t.includes("saldo anterior") || t.includes("89290") || t.includes("cooperativa: 2606")))
+  ) {
+    return "EXTRATO";
+  }
+
+  if ((t.includes("claro") || t.includes("net ") || t.includes("embratel") || t.includes("minhaclaro") || t.includes("40.432.544")) && !t.includes("extrato")) {
     return "CLARO";
   }
   if (t.includes("unimed") || t.includes("plano de saude") || t.includes("plano de saúde")) {
@@ -386,35 +398,107 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
       }
     }
 
-    // Anexo C: Desmembramento e Criação da Fatura Claro (R$ 20,00)
-    let payClaro = await prisma.payable.findFirst({
+    // Anexo C: Desmembramento e Limpeza de Fatura Claro vs Extratos Bancários Sicredi
+    // 1. Desvincula qualquer anexo de extrato (.ofx, .txt, .pdf de extrato) de contas a pagar
+    const extratoAttachments = await prisma.attachment.findMany({
+      where: {
+        OR: [
+          { nomeOriginal: { contains: "17940038" } },
+          { nomeOriginal: { endsWith: ".ofx" } },
+          { nomeOriginal: { contains: "extrato", mode: "insensitive" } },
+        ],
+      },
+      include: { payable: true },
+    });
+
+    if (extratoAttachments.length > 0) {
+      let statement10 = await prisma.bankStatement.findFirst({
+        where: { mes: 10, ano: 2026 },
+      });
+      if (!statement10) {
+        statement10 = await prisma.bankStatement.create({
+          data: {
+            banco: "Sicredi",
+            agencia: "2606",
+            conta: "89290-5",
+            mes: 10,
+            ano: 2026,
+            dataInicio: new Date("2026-10-01"),
+            dataFim: new Date("2026-10-31"),
+            saldoInicial: 7101.73,
+            saldoFinal: 4411.0,
+            totalCreditos: 9692.92,
+            totalDebitos: 12383.65,
+          },
+        });
+      }
+
+      for (const ea of extratoAttachments) {
+        await prisma.attachment.update({
+          where: { id: ea.id },
+          data: {
+            bankStatementId: statement10.id,
+            payableId: null,
+            receivableId: null,
+            categoria: "DOCUMENTO",
+          },
+        });
+      }
+    }
+
+    // O comprovante sicredi_17950861990 (R$ 20,00) pertence ao Sicredi Cartões, NUNCA à Claro!
+    const att20Sicredi = await prisma.attachment.findFirst({
+      where: { nomeOriginal: { contains: "17950861990" } },
+    });
+    if (att20Sicredi) {
+      const paySicredi = await prisma.payable.findFirst({
+        where: {
+          OR: [
+            { fornecedorNome: { contains: "Sicredi Cartões", mode: "insensitive" } },
+            { descricao: { contains: "Fatura Sicredi", mode: "insensitive" } },
+          ],
+        },
+      });
+      if (paySicredi) {
+        await prisma.attachment.update({
+          where: { id: att20Sicredi.id },
+          data: { payableId: paySicredi.id, receivableId: null, categoria: "COMPROVANTE" },
+        });
+      }
+    }
+
+    // Garante apenas UM título legítimo de Claro Telecom (R$ 20,00 com fatura.pdf)
+    const claroPayables = await prisma.payable.findMany({
       where: {
         OR: [
           { descricao: { contains: "Claro", mode: "insensitive" } },
           { fornecedorNome: { contains: "Claro", mode: "insensitive" } },
         ],
       },
+      include: { anexos: true, baixas: true },
+      orderBy: { createdAt: "asc" },
     });
 
-    if (payClaro) {
+    if (claroPayables.length > 0) {
+      const mainClaro = claroPayables[0];
       await prisma.payable.update({
-        where: { id: payClaro.id },
+        where: { id: mainClaro.id },
         data: {
           descricao: "Fatura Digital Claro",
           fornecedorNome: "Claro Telecom",
           fornecedorCpfCnpj: "40.432.544/0191-66",
           valorOriginal: 20.0,
-          dataVencimento: new Date("2026-11-22"),
+          dataVencimento: new Date("2026-11-21"),
         },
       });
 
-      // Vincula o anexo fatura.pdf especificamente à Claro Telecom
       const attFaturaClaro = await prisma.attachment.findFirst({
         where: {
           OR: [
             { nomeOriginal: "fatura.pdf" },
             { nomeOriginal: { contains: "claro", mode: "insensitive" } },
           ],
+          bankStatementId: null,
         },
       });
 
@@ -422,11 +506,18 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
         await prisma.attachment.update({
           where: { id: attFaturaClaro.id },
           data: {
-            payableId: payClaro.id,
+            payableId: mainClaro.id,
             receivableId: null,
             categoria: "DOCUMENTO",
           },
         });
+      }
+
+      // Expurga títulos excedentes/duplicados de Claro gerados por extratos ou agrupamentos indevidos
+      for (let i = 1; i < claroPayables.length; i++) {
+        await prisma.paymentRecord.deleteMany({ where: { payableId: claroPayables[i].id } });
+        await prisma.attachment.deleteMany({ where: { payableId: claroPayables[i].id } });
+        await prisma.payable.delete({ where: { id: claroPayables[i].id } });
       }
     }
 
@@ -1174,6 +1265,236 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
             }
           );
 
+          // =========================================================================
+          // DETECÇÃO E TRATAMENTO ESPECIAL DE EXTRATO BANCÁRIO (OFX, TXT, PDF)
+          // E-mails de extrato bancário NUNCA geram contas a pagar!
+          // =========================================================================
+          const ofxItem = todosOsAnexos.find(
+            (a) =>
+              a.fileName.toLowerCase().endsWith(".ofx") ||
+              a.mimeType.includes("ofx") ||
+              a.buffer.toString("utf-8", 0, 100).includes("<OFX>") ||
+              a.buffer.toString("utf-8", 0, 100).includes("OFXHEADER")
+          );
+
+          const isExtratoSubject =
+            emailSubject.toLowerCase().includes("extrato") ||
+            emailSubject.toLowerCase().includes("extrato bancario") ||
+            emailSubject.toLowerCase().includes("extrato bancário") ||
+            emailSubject.toLowerCase().includes("extrato sicredi");
+
+          const hasStatementFiles = todosOsAnexos.some((a) => {
+            const n = a.fileName.toLowerCase();
+            return (
+              (n.includes("sicredi") || n.includes("extrato")) &&
+              (n.endsWith(".pdf") || n.endsWith(".txt") || n.endsWith(".ofx"))
+            );
+          });
+
+          if (ofxItem || (isExtratoSubject && hasStatementFiles)) {
+            let parsedOfx: any = null;
+            if (ofxItem) {
+              try {
+                parsedOfx = parseOfx(ofxItem.buffer.toString("utf-8"));
+              } catch (ofxErr) {
+                console.warn("Erro ao fazer parse de OFX:", ofxErr);
+              }
+            }
+
+            let mes = now.getMonth() + 1;
+            let ano = now.getFullYear();
+            if (parsedOfx?.startDate) {
+              mes = parsedOfx.startDate.getMonth() + 1;
+              ano = parsedOfx.startDate.getFullYear();
+            } else if (emailSubject.toLowerCase().includes("outubro")) {
+              mes = 10;
+              ano = 2026;
+            } else if (emailSubject.toLowerCase().includes("novembro")) {
+              mes = 11;
+              ano = 2026;
+            }
+
+            const competenciaExtrato = `${ano}-${String(mes).padStart(2, "0")}`;
+
+            let statement = await prisma.bankStatement.findFirst({
+              where: { mes, ano },
+            });
+
+            let totalCreditos = 0;
+            let totalDebitos = 0;
+            if (parsedOfx?.transactions) {
+              for (const t of parsedOfx.transactions) {
+                if (t.amount > 0) totalCreditos += t.amount;
+                else totalDebitos += Math.abs(t.amount);
+              }
+            }
+
+            if (!statement) {
+              statement = await prisma.bankStatement.create({
+                data: {
+                  banco: "Sicredi",
+                  agencia: parsedOfx?.bankId || "2606",
+                  conta: parsedOfx?.accountNumber || "89290-5",
+                  mes,
+                  ano,
+                  dataInicio: parsedOfx?.startDate || new Date(ano, mes - 1, 1),
+                  dataFim: parsedOfx?.endDate || new Date(ano, mes, 0),
+                  saldoInicial: parsedOfx?.openingBalance || 0,
+                  saldoFinal: parsedOfx?.closingBalance || 0,
+                  totalCreditos: parseFloat(totalCreditos.toFixed(2)),
+                  totalDebitos: parseFloat(totalDebitos.toFixed(2)),
+                },
+              });
+            } else {
+              await prisma.bankStatement.update({
+                where: { id: statement.id },
+                data: {
+                  agencia: parsedOfx?.bankId || "2606",
+                  conta: parsedOfx?.accountNumber || "89290-5",
+                  dataInicio: parsedOfx?.startDate || statement.dataInicio,
+                  dataFim: parsedOfx?.endDate || statement.dataFim,
+                  saldoInicial: parsedOfx?.openingBalance ?? statement.saldoInicial,
+                  saldoFinal: parsedOfx?.closingBalance ?? statement.saldoFinal,
+                  totalCreditos: totalCreditos > 0 ? parseFloat(totalCreditos.toFixed(2)) : statement.totalCreditos,
+                  totalDebitos: totalDebitos > 0 ? parseFloat(totalDebitos.toFixed(2)) : statement.totalDebitos,
+                },
+              });
+            }
+
+            if (parsedOfx?.transactions && parsedOfx.transactions.length > 0) {
+              let saldoLinha = parsedOfx.openingBalance || 0;
+              for (const trn of parsedOfx.transactions) {
+                saldoLinha = parseFloat((saldoLinha + trn.amount).toFixed(2));
+                let matchedPayableId: string | null = null;
+                let matchedReceivableId: string | null = null;
+                let conciliado = false;
+
+                const dataTransacao = new Date(trn.date);
+                const margemDias = 5;
+                const dataMin = new Date(dataTransacao.getTime() - margemDias * 86400000);
+                const dataMax = new Date(dataTransacao.getTime() + margemDias * 86400000);
+
+                if (trn.amount < 0) {
+                  const valorDebito = Math.abs(trn.amount);
+                  const matchPayable = await prisma.payable.findFirst({
+                    where: {
+                      valorOriginal: { gte: valorDebito - 0.05, lte: valorDebito + 0.05 },
+                      dataVencimento: { gte: dataMin, lte: dataMax },
+                      conciliado: false,
+                    },
+                  });
+                  if (matchPayable) {
+                    matchedPayableId = matchPayable.id;
+                    conciliado = true;
+                    await prisma.payable.update({
+                      where: { id: matchPayable.id },
+                      data: { conciliado: true, dataConciliacao: dataTransacao },
+                    });
+                  }
+                } else {
+                  const valorCredito = trn.amount;
+                  const matchReceivable = await prisma.receivable.findFirst({
+                    where: {
+                      valorOriginal: { gte: valorCredito - 0.05, lte: valorCredito + 0.05 },
+                      dataVencimento: { gte: dataMin, lte: dataMax },
+                      conciliado: false,
+                    },
+                  });
+                  if (matchReceivable) {
+                    matchedReceivableId = matchReceivable.id;
+                    conciliado = true;
+                    await prisma.receivable.update({
+                      where: { id: matchReceivable.id },
+                      data: { conciliado: true, dataConciliacao: dataTransacao },
+                    });
+                  }
+                }
+
+                const existingTrn = await prisma.bankTransaction.findFirst({
+                  where: { statementId: statement.id, fitid: trn.fitid },
+                });
+                if (!existingTrn) {
+                  await prisma.bankTransaction.create({
+                    data: {
+                      statementId: statement.id,
+                      fitid: trn.fitid,
+                      tipo: trn.type,
+                      data: trn.date,
+                      descricao: trn.memo,
+                      valor: trn.amount,
+                      saldo: saldoLinha,
+                      numeroDocumento: trn.checkNumber,
+                      conciliado,
+                      payableId: matchedPayableId,
+                      receivableId: matchedReceivableId,
+                    },
+                  });
+                }
+              }
+            }
+
+            for (const anexoItem of todosOsAnexos) {
+              result.totalAnexosProcessados++;
+              totalAnexosMsg++;
+              const safeOriginalName = anexoItem.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+              const uniqueFileName = `${Date.now()}_${safeOriginalName}`;
+              const filePath = path.join(uploadDir, uniqueFileName);
+              try {
+                await fs.writeFile(filePath, anexoItem.buffer);
+              } catch {}
+
+              const existingAtt = await prisma.attachment.findFirst({
+                where: { nomeOriginal: anexoItem.fileName },
+              });
+              if (existingAtt) {
+                await prisma.attachment.update({
+                  where: { id: existingAtt.id },
+                  data: {
+                    bankStatementId: statement.id,
+                    payableId: null,
+                    receivableId: null,
+                    categoria: "DOCUMENTO",
+                    competencia: competenciaExtrato,
+                  },
+                });
+              } else {
+                await prisma.attachment.create({
+                  data: {
+                    categoria: "DOCUMENTO",
+                    nomeOriginal: anexoItem.fileName,
+                    nomeArquivo: uniqueFileName,
+                    caminho: filePath,
+                    mimeType: anexoItem.mimeType || "application/octet-stream",
+                    tamanho: anexoItem.buffer.length,
+                    competencia: competenciaExtrato,
+                    bankStatementId: statement.id,
+                  },
+                });
+              }
+            }
+
+            result.extratosImportados++;
+            await addAuditLog(
+              "GMAIL_SYNC",
+              "SUCCESS",
+              `Extrato Bancário Sicredi Importado (${mes}/${ano})`,
+              `Extrato contendo ${todosOsAnexos.length} arquivos (.ofx, .txt, .pdf) importado com sucesso na Conciliação Bancária. Nenhum título a pagar incorreto foi gerado.`
+            );
+
+            if (lidosFolderPath && folderPath !== lidosFolderPath) {
+              try {
+                await client.messageMove(String(item.uid), lidosFolderPath, { uid: true });
+              } catch {
+                try {
+                  await client.messageCopy(String(item.uid), lidosFolderPath, { uid: true });
+                  await client.messageDelete(String(item.uid), { uid: true });
+                } catch {}
+              }
+            }
+
+            continue; // Pula o processamento como conta a pagar!
+          }
+
           for (const anexoItem of todosOsAnexos) {
             result.totalAnexosProcessados++;
             totalAnexosMsg++;
@@ -1222,6 +1543,49 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
                   "WARN",
                   `Arquivo com senha ignorado: ${fileName}`,
                   `O anexo "${fileName}" possui proteção por senha/criptografia e não foi importado. Nenhum lançamento financeiro vazio foi gerado.`
+                );
+                continue;
+              }
+
+              // =========================================================================
+              // Regra Extrato Bancário: Nunca gerar conta a pagar para extratos
+              // =========================================================================
+              if (analysis.tipoDocumento === "EXTRATO_BANCARIO" || fileName.toLowerCase().endsWith(".ofx")) {
+                let st = await prisma.bankStatement.findFirst({
+                  where: { mes: now.getMonth() + 1, ano: now.getFullYear() },
+                });
+                if (!st) {
+                  st = await prisma.bankStatement.findFirst({ orderBy: { createdAt: "desc" } });
+                }
+                if (st) {
+                  const existingAtt = await prisma.attachment.findFirst({
+                    where: { nomeOriginal: fileName },
+                  });
+                  if (existingAtt) {
+                    await prisma.attachment.update({
+                      where: { id: existingAtt.id },
+                      data: { bankStatementId: st.id, payableId: null, receivableId: null, categoria: "DOCUMENTO" },
+                    });
+                  } else {
+                    await prisma.attachment.create({
+                      data: {
+                        categoria: "DOCUMENTO",
+                        nomeOriginal: fileName,
+                        nomeArquivo: uniqueFileName,
+                        caminho: filePath,
+                        mimeType,
+                        tamanho: buffer.length,
+                        competencia,
+                        bankStatementId: st.id,
+                      },
+                    });
+                  }
+                }
+                await addAuditLog(
+                  "IA_EXTRACAO",
+                  "INFO",
+                  `Extrato Bancário Vinculado: ${fileName}`,
+                  `O arquivo "${fileName}" foi identificado como extrato bancário e vinculado diretamente à Conciliação Bancária. Nenhum título a pagar foi criado.`
                 );
                 continue;
               }

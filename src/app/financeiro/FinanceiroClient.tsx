@@ -797,26 +797,26 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
 
   return (
     <div className="space-y-6">
-      {/* Alerta de Feedback */}
+      {/* Alerta de Feedback de Alta Visibilidade */}
       {feedbackMsg && (
         <div
-          className={`p-4 rounded-xl border flex items-center justify-between gap-3 text-sm animate-in fade-in ${
+          className={`p-4 rounded-xl flex items-center justify-between gap-3 text-sm font-semibold shadow-md animate-in fade-in ${
             feedbackMsg.type === "success"
-              ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-              : "bg-red-50 border-red-200 text-red-800"
+              ? "bg-emerald-600 text-white"
+              : "bg-rose-600 text-white"
           }`}
         >
           <div className="flex items-center gap-2">
             {feedbackMsg.type === "success" ? (
-              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              <CheckCircle2 className="w-5 h-5 text-white" />
             ) : (
-              <AlertCircle className="w-5 h-5 text-red-600" />
+              <AlertCircle className="w-5 h-5 text-white" />
             )}
             <span>{feedbackMsg.text}</span>
           </div>
           <button
             onClick={() => setFeedbackMsg(null)}
-            className="text-xs font-semibold hover:underline cursor-pointer"
+            className="text-xs font-bold text-white/90 hover:text-white hover:underline cursor-pointer px-2 py-1 rounded bg-black/10 transition-colors"
           >
             Fechar
           </button>
@@ -879,9 +879,9 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-card border border-border p-5 rounded-2xl shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-muted-foreground uppercase">A Pagar Pendente</span>
-            <div className="w-8 h-8 rounded-lg bg-red-100 text-red-600 flex items-center justify-center">
-              <ArrowDownRight className="w-4 h-4" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase">A Pagar Pendente</span>
+            <div className="w-8 h-8 rounded-lg bg-rose-600 text-white flex items-center justify-center shadow-xs">
+              <ArrowDownRight className="w-4 h-4 stroke-[2.5]" />
             </div>
           </div>
           <p className="text-2xl font-bold text-red-600 mt-2 font-sans tabular-nums">
@@ -894,9 +894,9 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
 
         <div className="bg-card border border-border p-5 rounded-2xl shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-muted-foreground uppercase">A Receber Pendente</span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center">
-              <ArrowUpRight className="w-4 h-4" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase">A Receber Pendente</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+              <ArrowUpRight className="w-4 h-4 stroke-[2.5]" />
             </div>
           </div>
           <p className="text-2xl font-bold text-emerald-600 mt-2 font-sans tabular-nums">
@@ -909,9 +909,9 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
 
         <div className="bg-card border border-border p-5 rounded-2xl shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-muted-foreground uppercase">Sicredi OFX</span>
-            <div className="w-8 h-8 rounded-lg bg-[#0B3D91]/10 text-[#0B3D91] flex items-center justify-center">
-              <FileSpreadsheet className="w-4 h-4" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase">Sicredi OFX</span>
+            <div className="w-8 h-8 rounded-lg bg-[#0B3D91] text-white flex items-center justify-center shadow-xs">
+              <FileSpreadsheet className="w-4 h-4 stroke-[2.5]" />
             </div>
           </div>
           <p className="text-lg font-bold text-foreground mt-2 font-sans tabular-nums">
@@ -924,9 +924,9 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
 
         <div className="bg-card border border-border p-5 rounded-2xl shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-muted-foreground uppercase">Inteligência Artificial</span>
-            <div className="w-8 h-8 rounded-lg bg-[#FF7A00]/10 text-[#FF7A00] flex items-center justify-center">
-              <Bot className="w-4 h-4" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase">Inteligência Artificial</span>
+            <div className="w-8 h-8 rounded-lg bg-[#FF7A00] text-white flex items-center justify-center shadow-xs">
+              <Bot className="w-4 h-4 stroke-[2.5]" />
             </div>
           </div>
           <p className="text-lg font-bold text-foreground mt-2 flex items-center gap-1.5">
@@ -1113,17 +1113,17 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
             <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-xs">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs min-w-[1000px]">
-                  <thead className="bg-slate-100 border-b border-border text-slate-700 uppercase tracking-wider font-bold">
+                  <thead className="bg-[#0B3D91] text-white uppercase tracking-wider font-bold">
                     <tr>
-                      <th className="py-2.5 px-3 whitespace-nowrap">Vencimento</th>
-                      <th className="py-2.5 px-3">Fornecedor</th>
-                      <th className="py-2.5 px-3">Descrição</th>
-                      <th className="py-2.5 px-3">Categoria</th>
-                      <th className="py-2.5 px-3">Documento</th>
-                      <th className="py-2.5 px-3 text-right whitespace-nowrap">Valor</th>
-                      <th className="py-2.5 px-2 text-center whitespace-nowrap">Status</th>
-                      <th className="py-2.5 px-2 text-center whitespace-nowrap">Conciliado</th>
-                      <th className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 bg-slate-100 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">Ações</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap text-white">Vencimento</th>
+                      <th className="py-2.5 px-3 text-white">Fornecedor</th>
+                      <th className="py-2.5 px-3 text-white">Descrição</th>
+                      <th className="py-2.5 px-3 text-white">Categoria</th>
+                      <th className="py-2.5 px-3 text-white">Documento</th>
+                      <th className="py-2.5 px-3 text-right whitespace-nowrap text-white">Valor</th>
+                      <th className="py-2.5 px-2 text-center whitespace-nowrap text-white">Status</th>
+                      <th className="py-2.5 px-2 text-center whitespace-nowrap text-white">Conciliado</th>
+                      <th className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 bg-[#0B3D91] text-white z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.2)]">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -1291,17 +1291,17 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
           <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs min-w-[950px]">
-                <thead className="bg-slate-100 border-b border-border text-slate-700 uppercase tracking-wider font-bold">
+                <thead className="bg-[#0B3D91] text-white uppercase tracking-wider font-bold">
                   <tr>
-                    <th className="py-2.5 px-3 whitespace-nowrap">Vencimento</th>
-                    <th className="py-2.5 px-3">Cliente / Tomador</th>
-                    <th className="py-2.5 px-3">Descrição</th>
-                    <th className="py-2.5 px-3">Documento</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap">Nº NF-e / NFS-e</th>
-                    <th className="py-2.5 px-3 text-right whitespace-nowrap">Valor Líquido</th>
-                    <th className="py-2.5 px-2 text-center whitespace-nowrap">Status</th>
-                    <th className="py-2.5 px-2 text-center whitespace-nowrap">Conciliado</th>
-                    <th className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 bg-slate-100 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">Ações</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap text-white">Vencimento</th>
+                    <th className="py-2.5 px-3 text-white">Cliente / Tomador</th>
+                    <th className="py-2.5 px-3 text-white">Descrição</th>
+                    <th className="py-2.5 px-3 text-white">Documento</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap text-white">Nº NF-e / NFS-e</th>
+                    <th className="py-2.5 px-3 text-right whitespace-nowrap text-white">Valor Líquido</th>
+                    <th className="py-2.5 px-2 text-center whitespace-nowrap text-white">Status</th>
+                    <th className="py-2.5 px-2 text-center whitespace-nowrap text-white">Conciliado</th>
+                    <th className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 bg-[#0B3D91] text-white z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.2)]">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -1572,14 +1572,14 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-100 border-b border-border text-slate-700 uppercase font-bold">
+                <thead className="bg-[#0B3D91] text-white uppercase font-bold">
                   <tr>
-                    <th className="py-3 px-4">Data Compra</th>
-                    <th className="py-3 px-4">Descrição / Estabelecimento</th>
-                    <th className="py-3 px-4">Categoria de Custo</th>
-                    <th className="py-3 px-4 font-mono">Nº NF / Cupom</th>
-                    <th className="py-3 px-4 text-center">Parcela</th>
-                    <th className="py-3 px-4 text-right">Valor da Compra</th>
+                    <th className="py-3 px-4 text-white">Data Compra</th>
+                    <th className="py-3 px-4 text-white">Descrição / Estabelecimento</th>
+                    <th className="py-3 px-4 text-white">Categoria de Custo</th>
+                    <th className="py-3 px-4 font-mono text-white">Nº NF / Cupom</th>
+                    <th className="py-3 px-4 text-center text-white">Parcela</th>
+                    <th className="py-3 px-4 text-right text-white">Valor da Compra</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
