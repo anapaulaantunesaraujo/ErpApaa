@@ -802,8 +802,8 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
         <div
           className={`p-4 rounded-xl border flex items-center justify-between gap-3 text-sm animate-in fade-in ${
             feedbackMsg.type === "success"
-              ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 text-emerald-800 dark:text-emerald-300"
-              : "bg-red-50 dark:bg-red-950/40 border-red-200 text-red-800 dark:text-red-300"
+              ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+              : "bg-red-50 border-red-200 text-red-800"
           }`}
         >
           <div className="flex items-center gap-2">
@@ -843,7 +843,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
 
         {/* Seletor de Competência Mês / Ano */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-border px-3 py-2 rounded-xl text-xs font-medium">
+          <div className="flex items-center gap-2 bg-slate-50 border border-border px-3 py-2 rounded-xl text-xs font-medium">
             <Calendar className="w-4 h-4 text-[#0B3D91]" />
             <span>Competência:</span>
             <select
@@ -880,7 +880,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
         <div className="bg-card border border-border p-5 rounded-2xl shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-muted-foreground uppercase">A Pagar Pendente</span>
-            <div className="w-8 h-8 rounded-lg bg-red-100 dark:bg-red-950/60 text-red-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-red-100 text-red-600 flex items-center justify-center">
               <ArrowDownRight className="w-4 h-4" />
             </div>
           </div>
@@ -895,7 +895,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
         <div className="bg-card border border-border p-5 rounded-2xl shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-muted-foreground uppercase">A Receber Pendente</span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center">
               <ArrowUpRight className="w-4 h-4" />
             </div>
           </div>
@@ -1036,8 +1036,8 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                         onClick={() => setFilterCategoria(isSelected ? "TODAS" : cat.nome)}
                         className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
                           isSelected
-                            ? "border-[#00A6FF] bg-blue-50/70 dark:bg-blue-950/50 ring-2 ring-[#00A6FF]/40 shadow-xs"
-                            : "border-border bg-muted/20 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-muted/40"
+                            ? "border-[#00A6FF] bg-blue-50/70 ring-2 ring-[#00A6FF]/40 shadow-xs"
+                            : "border-border bg-muted/20 hover:border-slate-300:border-slate-700 hover:bg-muted/40"
                         }`}
                       >
                         <div className="flex items-center justify-between text-xs mb-1">
@@ -1046,7 +1046,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                           </span>
                           <span className="font-bold tabular-nums text-muted-foreground">{perc.toFixed(1)}%</span>
                         </div>
-                        <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden mb-1.5">
+                        <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden mb-1.5">
                           <div
                             className="h-full rounded-full transition-all"
                             style={{ width: `${perc}%`, backgroundColor: cat.cor || "#0B3D91" }}
@@ -1068,7 +1068,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-foreground">Lançamentos de Contas a Pagar</h2>
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-muted-foreground font-semibold">
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 text-muted-foreground font-semibold">
                   {filteredPayables.length} títulos
                 </span>
               </div>
@@ -1094,7 +1094,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                 <button
                   type="button"
                   onClick={() => setShowCategoryReport((prev) => !prev)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-card text-foreground text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer shadow-2xs"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-card text-foreground text-xs font-semibold hover:bg-slate-50:bg-slate-800 cursor-pointer shadow-2xs"
                 >
                   <PieChart className="w-3.5 h-3.5 text-[#FF7A00]" />
                   <span>{showCategoryReport ? "Ocultar Relatório" : "Ver Relatório"}</span>
@@ -1113,7 +1113,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
             <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-xs">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 dark:bg-slate-900/60 border-b border-border text-muted-foreground uppercase tracking-wider font-semibold">
+                  <thead className="bg-slate-100 border-b border-border text-slate-700 uppercase tracking-wider font-bold">
                     <tr>
                       <th className="py-3 px-4">Vencimento</th>
                       <th className="py-3 px-4">Fornecedor</th>
@@ -1140,14 +1140,14 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                         const catNome = formatCategoriaNome(p.categoria);
                         const catCor = categories.find((c) => c.nome === catNome)?.cor || "#0B3D91";
                         return (
-                          <tr key={p.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/30">
+                          <tr key={p.id} className="hover:bg-slate-50/50:bg-slate-900/30">
                             <td className="py-3 px-4 font-mono">
                               {new Date(p.dataVencimento).toLocaleDateString("pt-BR")}
                             </td>
                             <td className="py-3 px-4 font-semibold text-foreground">{p.fornecedorNome}</td>
                             <td className="py-3 px-4 text-muted-foreground">{p.descricao}</td>
                             <td className="py-3 px-4 whitespace-nowrap">
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10.5px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10.5px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
                                 <span
                                   className="w-2 h-2 rounded-full shrink-0"
                                   style={{ backgroundColor: catCor }}
@@ -1158,7 +1158,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                             <td className="py-3 px-4">
                               <div className="flex flex-col gap-1">
                                 {p.numeroDocumento && (
-                                  <span className="font-mono text-slate-700 dark:text-slate-300 font-semibold">{p.numeroDocumento}</span>
+                                  <span className="font-mono text-slate-700 font-semibold">{p.numeroDocumento}</span>
                                 )}
                                 {p.anexos && p.anexos.length > 0 ? (
                                   <div className="flex flex-wrap gap-1">
@@ -1169,7 +1169,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         title={`Abrir/Visualizar: ${att.nomeOriginal}`}
-                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800 text-[10px] font-medium transition-colors"
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700:bg-blue-900 border border-blue-200 text-[10px] font-medium transition-colors"
                                       >
                                         <FileText className="w-3 h-3 text-[#00A6FF]" />
                                         <span className="truncate max-w-[110px]">{att.nomeOriginal}</span>
@@ -1189,10 +1189,10 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                               <span
                                 className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                   p.status === "PAGO"
-                                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                                    ? "bg-emerald-100 text-emerald-800"
                                     : p.status === "PARCIAL"
                                     ? "bg-amber-100 text-amber-800"
-                                    : "bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300"
+                                    : "bg-red-100 text-red-800"
                                 }`}
                               >
                                 {p.status}
@@ -1284,7 +1284,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
           <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-900/60 border-b border-border text-muted-foreground uppercase tracking-wider font-semibold">
+                <thead className="bg-slate-100 border-b border-border text-slate-700 uppercase tracking-wider font-bold">
                   <tr>
                     <th className="py-3 px-4">Vencimento</th>
                     <th className="py-3 px-4">Cliente / Tomador</th>
@@ -1306,7 +1306,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                     </tr>
                   ) : (
                     receivables.map((r) => (
-                      <tr key={r.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/30">
+                      <tr key={r.id} className="hover:bg-slate-50/50:bg-slate-900/30">
                         <td className="py-3 px-4 font-mono">
                           {new Date(r.dataVencimento).toLocaleDateString("pt-BR")}
                         </td>
@@ -1323,7 +1323,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     title={`Abrir/Visualizar: ${att.nomeOriginal}`}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 dark:hover:bg-emerald-900 border border-emerald-200 dark:border-emerald-800 text-[10px] font-medium transition-colors"
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700:bg-emerald-900 border border-emerald-200 text-[10px] font-medium transition-colors"
                                   >
                                     <FileText className="w-3 h-3 text-emerald-600" />
                                     <span className="truncate max-w-[120px]">{att.nomeOriginal}</span>
@@ -1350,7 +1350,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                           <span
                             className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                               r.status === "RECEBIDO"
-                                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                                ? "bg-emerald-100 text-emerald-800"
                                 : "bg-amber-100 text-amber-800"
                             }`}
                           >
@@ -1522,7 +1522,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                         <span className="font-semibold text-foreground truncate">{cat.nome}</span>
                         <span className="font-mono font-bold text-muted-foreground">{perc.toFixed(1)}%</span>
                       </div>
-                      <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                      <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
                         <div
                           className="h-full rounded-full transition-all"
                           style={{ width: `${perc}%`, backgroundColor: cat.cor || "#0B3D91" }}
@@ -1565,7 +1565,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-900/60 border-b border-border text-muted-foreground uppercase font-semibold">
+                <thead className="bg-slate-100 border-b border-border text-slate-700 uppercase font-bold">
                   <tr>
                     <th className="py-3 px-4">Data Compra</th>
                     <th className="py-3 px-4">Descrição / Estabelecimento</th>
@@ -1584,7 +1584,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                     </tr>
                   ) : (
                     cardExpenses.map((exp) => (
-                      <tr key={exp.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/30">
+                      <tr key={exp.id} className="hover:bg-slate-50/50:bg-slate-900/30">
                         <td className="py-3 px-4 font-mono">
                           {new Date(exp.dataCompra).toLocaleDateString("pt-BR")}
                         </td>
@@ -1734,7 +1734,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
             </p>
 
             <form onSubmit={handleUploadExtrato} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="border border-dashed border-border rounded-xl p-4 text-center bg-slate-50 dark:bg-slate-900/40">
+              <div className="border border-dashed border-border rounded-xl p-4 text-center bg-slate-50">
                 <p className="text-xs font-bold text-[#0B3D91] uppercase">1. Arquivo .OFX (Obrigatório)</p>
                 <input
                   type="file"
@@ -1745,7 +1745,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                 />
               </div>
 
-              <div className="border border-dashed border-border rounded-xl p-4 text-center bg-slate-50 dark:bg-slate-900/40">
+              <div className="border border-dashed border-border rounded-xl p-4 text-center bg-slate-50">
                 <p className="text-xs font-bold text-muted-foreground uppercase">2. Arquivo .TXT</p>
                 <input
                   type="file"
@@ -1755,7 +1755,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                 />
               </div>
 
-              <div className="border border-dashed border-border rounded-xl p-4 text-center bg-slate-50 dark:bg-slate-900/40">
+              <div className="border border-dashed border-border rounded-xl p-4 text-center bg-slate-50">
                 <p className="text-xs font-bold text-muted-foreground uppercase">3. Arquivo .PDF</p>
                 <input
                   type="file"
@@ -1843,15 +1843,15 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                     </tr>
                   </thead>
 
-                  <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-200 dark:divide-slate-800 font-mono">
+                  <tbody className="bg-white divide-y divide-slate-200 font-mono">
                     {/* Linha 3: Saldo Anterior */}
-                    <tr className="bg-slate-50 dark:bg-slate-800/40 font-bold">
-                      <td className="py-2 px-3 border-r border-slate-200 dark:border-slate-800"></td>
-                      <td className="py-2 px-3 border-r border-slate-200 dark:border-slate-800"></td>
-                      <td className="py-2 px-4 border-r border-slate-200 dark:border-slate-800 font-sans uppercase">
+                    <tr className="bg-slate-50 font-bold">
+                      <td className="py-2 px-3 border-r border-slate-200"></td>
+                      <td className="py-2 px-3 border-r border-slate-200"></td>
+                      <td className="py-2 px-4 border-r border-slate-200 font-sans uppercase">
                         SALDO ANTERIOR
                       </td>
-                      <td className="py-2 px-4 border-r border-slate-200 dark:border-slate-800 text-right"></td>
+                      <td className="py-2 px-4 border-r border-slate-200 text-right"></td>
                       <td className="py-2 px-4 text-right text-foreground">
                         R${(extratoStatement?.saldoInicial || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                       </td>
@@ -1860,18 +1860,18 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                     {/* Linhas das Transações */}
                     {extratoStatement?.transacoes && extratoStatement.transacoes.length > 0 ? (
                       extratoStatement.transacoes.map((t: any) => (
-                        <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
-                          <td className="py-2 px-3 text-center border-r border-slate-200 dark:border-slate-800">
+                        <tr key={t.id} className="hover:bg-slate-50:bg-slate-800/30">
+                          <td className="py-2 px-3 text-center border-r border-slate-200">
                             {new Date(t.data).toLocaleDateString("pt-BR")}
                           </td>
-                          <td className="py-2 px-3 text-center border-r border-slate-200 dark:border-slate-800 font-sans">
+                          <td className="py-2 px-3 text-center border-r border-slate-200 font-sans">
                             {t.receivable?.numeroNf || t.payable?.numeroDocumento || t.numeroDocumento || ""}
                           </td>
-                          <td className="py-2 px-4 border-r border-slate-200 dark:border-slate-800 font-sans text-foreground">
+                          <td className="py-2 px-4 border-r border-slate-200 font-sans text-foreground">
                             {t.descricao}
                           </td>
                           <td
-                            className={`py-2 px-4 text-right border-r border-slate-200 dark:border-slate-800 font-bold ${
+                            className={`py-2 px-4 text-right border-r border-slate-200 font-bold ${
                               t.valor < 0 ? "text-red-600" : "text-foreground"
                             }`}
                           >
@@ -1913,12 +1913,12 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
               </p>
             </div>
 
-            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-border text-xs space-y-2 font-mono">
+            <div className="p-4 rounded-xl bg-slate-50 border border-border text-xs space-y-2 font-mono">
               <p className="font-bold text-[#0B3D91] flex items-center gap-1.5 font-sans">
                 <FolderArchive className="w-4 h-4" />
                 <span>Fechamento_APAA_{selectedAno}_{String(selectedMes).padStart(2, "0")}.zip</span>
               </p>
-              <div className="pl-4 space-y-1 text-slate-600 dark:text-slate-300">
+              <div className="pl-4 space-y-1 text-slate-600">
                 <p>📄 Conciliacao_Bancaria_{selectedAno}_{String(selectedMes).padStart(2, "0")}.xlsx</p>
                 <p>📁 Extrato/ (Arquivos .ofx, .txt, .pdf do Sicredi)</p>
                 <p>📁 NFs emitidas/ (Notas Fiscais de receitas a receber)</p>
@@ -2082,11 +2082,11 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                     <span className="text-[10px] text-muted-foreground block font-sans">Anexos Lidos</span>
                     <strong className="text-sm">{syncEmailResult.totalAnexosProcessados}</strong>
                   </div>
-                  <div className="p-2 rounded-lg bg-red-50 dark:bg-red-950/30 text-red-600">
+                  <div className="p-2 rounded-lg bg-red-50 text-red-600">
                     <span className="text-[10px] block font-sans">Contas a Pagar</span>
                     <strong className="text-sm">{syncEmailResult.contasPagarCriadas}</strong>
                   </div>
-                  <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600">
+                  <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600">
                     <span className="text-[10px] block font-sans">Contas a Receber</span>
                     <strong className="text-sm">{syncEmailResult.contasReceberCriadas}</strong>
                   </div>
@@ -2122,7 +2122,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
               </div>
             </div>
 
-            <div className="mt-4 p-6 border-2 border-dashed border-border rounded-2xl text-center bg-slate-50 dark:bg-slate-900/40">
+            <div className="mt-4 p-6 border-2 border-dashed border-border rounded-2xl text-center bg-slate-50">
               <UploadCloud className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
               <p className="text-xs font-semibold text-foreground">
                 Selecione ou arraste o arquivo do documento
@@ -2162,7 +2162,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
 
             {/* Resultado da Análise */}
             {iaResult && (
-              <div className="mt-6 p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-border text-xs space-y-2">
+              <div className="mt-6 p-4 rounded-xl bg-slate-50 border border-border text-xs space-y-2">
                 <p className="font-bold text-emerald-600 flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Documento Processado com Sucesso!</span>
@@ -2309,21 +2309,21 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                 .map((log) => {
                   const nivelColors =
                     log.nivel === "ERROR"
-                      ? "border-l-red-500 bg-red-50/20 dark:bg-red-950/10"
+                      ? "border-l-red-500 bg-red-50/20"
                       : log.nivel === "WARN"
-                      ? "border-l-amber-500 bg-amber-50/20 dark:bg-amber-950/10"
+                      ? "border-l-amber-500 bg-amber-50/20"
                       : log.nivel === "SUCCESS"
-                      ? "border-l-emerald-500 bg-emerald-50/20 dark:bg-emerald-950/10"
-                      : "border-l-blue-500 bg-blue-50/20 dark:bg-blue-950/10";
+                      ? "border-l-emerald-500 bg-emerald-50/20"
+                      : "border-l-blue-500 bg-blue-50/20";
 
                   const badgeColors =
                     log.nivel === "ERROR"
-                      ? "bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-300"
+                      ? "bg-red-100 text-red-800"
                       : log.nivel === "WARN"
-                      ? "bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300"
+                      ? "bg-amber-100 text-amber-800"
                       : log.nivel === "SUCCESS"
-                      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300"
-                      : "bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300";
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-blue-100 text-blue-800";
 
                   return (
                     <div key={log.id} className={`p-4 border-l-4 text-xs space-y-1.5 transition-colors ${nivelColors}`}>
@@ -2569,7 +2569,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
               </div>
 
               {baixaModal.tipo === "PAGAR" && baixaModal.forma === "CARTAO_CREDITO" && (
-                <div className="space-y-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-border">
+                <div className="space-y-3 p-3 rounded-xl bg-slate-50 border border-border">
                   <div>
                     <label className="block font-semibold text-muted-foreground mb-1">Cartão de Crédito</label>
                     {creditCards.length > 0 ? (
@@ -2585,7 +2585,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                         ))}
                       </select>
                     ) : (
-                      <div className="px-3 py-2 rounded-xl border border-blue-200 bg-blue-50/60 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 text-xs">
+                      <div className="px-3 py-2 rounded-xl border border-blue-200 bg-blue-50/60 text-blue-700 text-xs">
                         Sicredi Mastercard Corporativo (Padrão)
                       </div>
                     )}
@@ -3127,7 +3127,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
               </div>
 
               {editPayableModal.item?.anexos && editPayableModal.item.anexos.length > 0 && (
-                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-border">
+                <div className="p-3 rounded-xl bg-slate-50 border border-border">
                   <span className="block font-semibold text-muted-foreground mb-1.5">Documentos Anexados:</span>
                   <div className="flex flex-wrap gap-2">
                     {editPayableModal.item.anexos.map((att: any) => (
@@ -3136,7 +3136,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                         href={`/api/financeiro/anexos/${att.id}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 text-xs font-medium"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 text-xs font-medium"
                       >
                         <FileText className="w-3.5 h-3.5 text-[#00A6FF]" />
                         <span>{att.nomeOriginal}</span>
@@ -3242,7 +3242,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
               </div>
 
               {editReceivableModal.item?.anexos && editReceivableModal.item.anexos.length > 0 && (
-                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-border">
+                <div className="p-3 rounded-xl bg-slate-50 border border-border">
                   <span className="block font-semibold text-muted-foreground mb-1.5">Documentos Anexados:</span>
                   <div className="flex flex-wrap gap-2">
                     {editReceivableModal.item.anexos.map((att: any) => (
@@ -3251,7 +3251,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                         href={`/api/financeiro/anexos/${att.id}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 text-xs font-medium"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 text-xs font-medium"
                       >
                         <FileText className="w-3.5 h-3.5 text-emerald-600" />
                         <span>{att.nomeOriginal}</span>

@@ -201,7 +201,7 @@ export default async function HomePage() {
               <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
                 Contas a Pagar Pendentes
               </span>
-              <div className="p-2 rounded-lg bg-red-100 dark:bg-red-950/60 text-red-600">
+              <div className="p-2 rounded-lg bg-red-100 text-red-600">
                 <ArrowDownRight className="w-5 h-5" />
               </div>
             </div>
@@ -227,7 +227,7 @@ export default async function HomePage() {
               <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
                 Contas a Receber Pendentes
               </span>
-              <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600">
+              <div className="p-2 rounded-lg bg-emerald-100 text-emerald-600">
                 <ArrowUpRight className="w-5 h-5" />
               </div>
             </div>
@@ -321,7 +321,7 @@ export default async function HomePage() {
               </h3>
 
               {latestPayables.length === 0 ? (
-                <div className="py-8 text-center text-xs text-muted-foreground bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-dashed border-border p-4">
+                <div className="py-8 text-center text-xs text-muted-foreground bg-slate-50 rounded-xl border border-dashed border-border p-4">
                   <p className="font-semibold text-foreground">Nenhuma conta a pagar cadastrada</p>
                   <p className="mt-1">Cadastre as contas de fornecedores ou importe via IA.</p>
                   <a
@@ -369,7 +369,7 @@ export default async function HomePage() {
               </h3>
 
               {latestReceivables.length === 0 ? (
-                <div className="py-8 text-center text-xs text-muted-foreground bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-dashed border-border p-4">
+                <div className="py-8 text-center text-xs text-muted-foreground bg-slate-50 rounded-xl border border-dashed border-border p-4">
                   <p className="font-semibold text-foreground">Nenhum recebimento cadastrado</p>
                   <p className="mt-1">Emita uma NFS-e Nacional ou lance títulos a receber.</p>
                   <a
@@ -431,7 +431,7 @@ export default async function HomePage() {
             {brandServices.map((svc) => (
               <div
                 key={svc.title}
-                className="p-5 rounded-xl border border-border bg-slate-50/50 dark:bg-slate-900/40 hover:border-[#00A6FF]/40 hover:shadow-sm transition-all"
+                className="p-5 rounded-xl border border-border bg-slate-50/50 hover:border-[#00A6FF]/40 hover:shadow-sm transition-all"
               >
                 <div className="flex items-center justify-between mb-3">
                   <div className="p-2.5 rounded-xl bg-card border border-border">
