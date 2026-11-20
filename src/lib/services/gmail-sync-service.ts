@@ -1,7 +1,10 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { prisma } from "@/lib/prisma";
-import { analyzeFinancialDocumentWithAI } from "./ai-document-analyzer";
+import {
+  analyzeFinancialDocumentWithAI,
+  advancedHeuristicDocumentParser,
+} from "./ai-document-analyzer";
 import path from "path";
 import fs from "fs/promises";
 
@@ -12,13 +15,15 @@ export interface EmailSyncResult {
   contasReceberCriadas: number;
   baixasEfetuadas: number;
   extratosImportados: number;
+  itensAtualizados?: number;
+  duplicadosRemovidos?: number;
   pastasVerificadas?: string[];
   erros: string[];
 }
 
 export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult> {
   const startTime = Date.now();
-  // Limite estrito de 35 segundos para responder bem antes do timeout do Cloud Run (60s/300s)
+  // Limite estrito de 35 segundos para responder bem antes do timeout do Cloud Run
   const MAX_EXECUTION_TIME_MS = 35_000;
 
   const settings = await prisma.companySettings.findFirst();
@@ -37,26 +42,111 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
     contasReceberCriadas: 0,
     baixasEfetuadas: 0,
     extratosImportados: 0,
+    itensAtualizados: 0,
+    duplicadosRemovidos: 0,
     pastasVerificadas: [],
     erros: [],
   };
-
-  const client = new ImapFlow({
-    host,
-    port,
-    secure: true,
-    auth: {
-      user,
-      pass: pass.replace(/\s+/g, ""), // Remove espaços da senha de aplicativo
-    },
-    logger: false,
-  });
 
   const uploadDir = path.join(process.cwd(), "public", "uploads", "anexos");
   await fs.mkdir(uploadDir, { recursive: true });
 
   const now = new Date();
   const competencia = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+  // =========================================================================
+  // ETAPA 1: Auto-correção de registros prévios zerados e remoção de duplicados
+  // =========================================================================
+  try {
+    const zeroPayables = await prisma.payable.findMany({
+      where: { valorOriginal: 0 },
+      include: { anexos: true },
+    });
+
+    for (const p of zeroPayables) {
+      if (p.anexos && p.anexos.length > 0) {
+        for (const att of p.anexos) {
+          const possiblePaths = [
+            att.caminho,
+            path.join(uploadDir, att.nomeArquivo),
+            path.join(process.cwd(), "public", "uploads", "anexos", att.nomeArquivo),
+            path.join("/tmp", "uploads", "anexos", att.nomeArquivo),
+          ];
+
+          let buf: Buffer | null = null;
+          for (const pth of possiblePaths) {
+            try {
+              buf = await fs.readFile(pth);
+              break;
+            } catch {}
+          }
+
+          if (buf) {
+            const reAnalysis = advancedHeuristicDocumentParser(buf, att.mimeType, att.nomeOriginal, p.descricao);
+            if (reAnalysis.valor > 0) {
+              await prisma.payable.update({
+                where: { id: p.id },
+                data: {
+                  valorOriginal: reAnalysis.valor,
+                  valorPago: p.status === "PAGO" ? reAnalysis.valor : p.valorPago,
+                  linhaDigitavel: reAnalysis.linhaDigitavel || p.linhaDigitavel,
+                  fornecedorNome: p.fornecedorNome.includes("Identificado")
+                    ? reAnalysis.nomeRecebedor || p.fornecedorNome
+                    : p.fornecedorNome,
+                },
+              });
+              result.itensAtualizados = (result.itensAtualizados || 0) + 1;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Limpa duplicidades de títulos com a mesma descrição e anexos repetidos
+    const allPayables = await prisma.payable.findMany({
+      orderBy: { createdAt: "asc" },
+      include: { anexos: true },
+    });
+
+    const seenDesc = new Map<string, string>();
+    for (const item of allPayables) {
+      const key = `${item.descricao}_${item.valorOriginal}_${item.status}`.toLowerCase();
+      if (seenDesc.has(key)) {
+        // Se for duplicata idêntica, move os anexos para o primeiro e remove a duplicata
+        const originalId = seenDesc.get(key)!;
+        if (item.anexos && item.anexos.length > 0) {
+          for (const a of item.anexos) {
+            await prisma.attachment.update({
+              where: { id: a.id },
+              data: { payableId: originalId },
+            });
+          }
+        }
+        await prisma.payable.delete({ where: { id: item.id } });
+        result.duplicadosRemovidos = (result.duplicadosRemovidos || 0) + 1;
+      } else {
+        seenDesc.set(key, item.id);
+      }
+    }
+  } catch (cleanErr: any) {
+    console.warn("Aviso na etapa de auto-correção de registros prévios:", cleanErr.message);
+  }
+
+  // =========================================================================
+  // ETAPA 2: Conexão e busca inteligente de novos e-mails no Gmail
+  // =========================================================================
+  const client = new ImapFlow({
+    host,
+    port,
+    secure: true,
+    auth: {
+      user,
+      pass: pass.replace(/\s+/g, ""),
+    },
+    logger: false,
+  });
+
   const processedMessageIdsInRun = new Set<string>();
 
   // Função recursiva para desempacotar e-mails anexados (.eml / message/rfc822)
@@ -71,7 +161,6 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
       const fn = att.filename || `anexo_${Date.now()}.bin`;
       const ct = (att.contentType || "").toLowerCase();
 
-      // Se o anexo for um e-mail encaminhado (.eml ou message/rfc822)
       const isEml =
         ct.includes("message/rfc822") ||
         ct.includes("message/rfc2822") ||
@@ -92,7 +181,6 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
               });
             }
           } else {
-            // Se o e-mail anexado não tiver arquivo, mas tiver texto explicativo/comprovante
             const textContent = subMail.text || (subMail.html ? subMail.html.replace(/<[^>]+>/g, " ") : "");
             if (textContent && textContent.trim().length > 20) {
               lista.push({
@@ -122,7 +210,6 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
       }
     }
 
-    // Se o e-mail não tem anexos em arquivo, mas tem comprovante no próprio corpo
     if (lista.length === 0 && depth === 0) {
       const textContent = parsedMail.text || (parsedMail.html ? parsedMail.html.replace(/<[^>]+>/g, " ") : "");
       const lower = textContent.toLowerCase();
@@ -148,11 +235,10 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
   try {
     await client.connect();
 
-    // 1. Identifica todas as pastas de interesse no Gmail (Financeiro, Salvos, Comprovantes e INBOX)
     const mailboxes = await client.list();
     const candidateFolders: string[] = [];
 
-    // Prioridade 1: Pastas com "financeiro" ou nome configurado
+    // Prioridade 1: Pastas com "financeiro" ou pasta configurada
     for (const mb of mailboxes) {
       const p = mb.path.toLowerCase();
       const n = mb.name.toLowerCase();
@@ -174,7 +260,7 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
       }
     }
 
-    // Prioridade 3: INBOX (onde chegam e-mails encaminhados diretamente)
+    // Prioridade 3: INBOX
     const inboxMb = mailboxes.find(
       (mb) => mb.path.toUpperCase() === "INBOX" || mb.name.toUpperCase() === "INBOX"
     );
@@ -182,18 +268,11 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
       candidateFolders.push(inboxMb.path);
     }
 
-    if (candidateFolders.length === 0) {
-      candidateFolders.push("INBOX");
-    }
-
+    if (candidateFolders.length === 0) candidateFolders.push("INBOX");
     result.pastasVerificadas = candidateFolders;
 
-    // 2. Itera sobre cada pasta com orçamento de tempo estrito
     for (const folderPath of candidateFolders) {
-      if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
-        console.log("Tempo limite atingido para evitar timeout no Cloud Run. Finalizando lote.");
-        break;
-      }
+      if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) break;
 
       let lock;
       try {
@@ -207,11 +286,9 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
         const totalMsgs = client.mailbox ? client.mailbox.exists : 0;
         if (totalMsgs === 0) continue;
 
-        // Busca apenas as mensagens mais recentes (últimas 20 mensagens por pasta)
         const startSeq = Math.max(1, totalMsgs - 19);
         const seqRange = `${startSeq}:*`;
 
-        // Busca metadados RÁPIDA (apenas UID e Envelope, sem baixar conteúdo pesado)
         const messagesCursor = client.fetch(seqRange, {
           uid: true,
           envelope: true,
@@ -223,12 +300,10 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
 
         for await (const msg of messagesCursor) {
           const internalTime = msg.internalDate ? new Date(msg.internalDate).getTime() : 0;
-          const msgId =
-            msg.envelope?.messageId || `msg_${folderPath}_${msg.uid}_${internalTime}`;
+          const msgId = msg.envelope?.messageId || `msg_${folderPath}_${msg.uid}_${internalTime}`;
 
           if (processedMessageIdsInRun.has(msgId)) continue;
 
-          // Verifica se já processou no banco de dados
           const existingLog = await prisma.emailSyncLog.findFirst({
             where: { messageId: msgId },
           });
@@ -238,15 +313,11 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
           }
         }
 
-        // Processa cada e-mail novo individualmente
         for (const item of messagesToProcess) {
-          if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
-            break;
-          }
+          if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) break;
 
           processedMessageIdsInRun.add(item.messageId);
 
-          // Baixa o conteúdo completo (source) APENAS do e-mail que realmente será processado
           const fullMsg = await client.fetchOne(item.uid, { source: true }, { uid: true });
           if (!fullMsg || !fullMsg.source) continue;
 
@@ -256,7 +327,6 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
           let totalAnexosMsg = 0;
           const detalhesItens: string[] = [];
 
-          // Extrai todos os anexos (incluindo desempacotamento de .eml)
           const todosOsAnexos = await extrairTodosOsAnexos(parsed);
 
           for (const anexoItem of todosOsAnexos) {
@@ -268,13 +338,11 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
             const mimeType = anexoItem.mimeType;
             const contextSubject = anexoItem.contextSubject || emailSubject;
 
-            // Salva anexo em disco
             const safeOriginalName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
             const uniqueFileName = `${Date.now()}_${safeOriginalName}`;
             const filePath = path.join(uploadDir, uniqueFileName);
             await fs.writeFile(filePath, buffer);
 
-            // Análise com IA Multimodal / Heurística
             try {
               const analysis = await analyzeFinancialDocumentWithAI(
                 buffer,
@@ -284,24 +352,70 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
                 contextSubject
               );
 
-              const cleanPagador = String(analysis.cnpjPagador || "").replace(/\D/g, "");
               const cleanRecebedor = String(analysis.cnpjRecebedor || "").replace(/\D/g, "");
+              const dataPag = analysis.dataPagamento ? new Date(analysis.dataPagamento) : now;
+              const dataVenc = analysis.dataVencimento ? new Date(analysis.dataVencimento) : dataPag;
 
-              // COMPROVANTE DE PAGAMENTO
-              if (analysis.tipoDocumento === "COMPROVANTE_PAGAMENTO") {
-                // Tenta localizar um título a pagar pendente com valor aproximado
-                const payableMatch = analysis.valor > 0 ? await prisma.payable.findFirst({
+              // =========================================================================
+              // LÓGICA DE DEDUPLICAÇÃO & UNIFICAÇÃO (Boleto vs Comprovante)
+              // =========================================================================
+              // Verifica se já existe um título no sistema correspondente a este documento
+              let existingPayable: any = null;
+
+              // 1. Busca por nome de anexo idêntico
+              const attMatch = await prisma.attachment.findFirst({
+                where: { nomeOriginal: fileName, payableId: { not: null } },
+                include: { payable: true },
+              });
+              if (attMatch?.payable) {
+                existingPayable = attMatch.payable;
+              }
+
+              // 2. Busca por valor e termos-chave na descrição (Sicredi, INSS, Unimed, Contabilidade, etc.)
+              if (!existingPayable) {
+                const normSearch = `${contextSubject} ${fileName} ${analysis.descricao}`.toLowerCase();
+                const keywords = ["sicredi", "inss", "unimed", "contabilidade", "distribuicao", "distribuição", "5428"];
+                const matchedKey = keywords.find((k) => normSearch.includes(k));
+
+                if (matchedKey) {
+                  existingPayable = await prisma.payable.findFirst({
+                    where: {
+                      OR: [
+                        { descricao: { contains: matchedKey, mode: "insensitive" } },
+                        { fornecedorNome: { contains: matchedKey, mode: "insensitive" } },
+                      ],
+                      dataCompetencia: {
+                        gte: new Date(now.getFullYear(), now.getMonth(), 1),
+                        lte: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59),
+                      },
+                    },
+                    include: { anexos: true },
+                  });
+                }
+              }
+
+              // 3. Busca por valor aproximado (+- 0.50) se valor > 0
+              if (!existingPayable && analysis.valor > 0) {
+                existingPayable = await prisma.payable.findFirst({
                   where: {
                     valorOriginal: { gte: analysis.valor - 0.5, lte: analysis.valor + 0.5 },
-                    status: { in: ["PENDENTE", "PARCIAL"] },
+                    dataCompetencia: {
+                      gte: new Date(now.getFullYear(), now.getMonth(), 1),
+                      lte: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59),
+                    },
                   },
-                  orderBy: { dataVencimento: "desc" },
-                }) : null;
+                  include: { anexos: true },
+                });
+              }
 
-                const dataPag = analysis.dataPagamento ? new Date(analysis.dataPagamento) : now;
+              // =========================================================================
+              // CASO A: Título já existia no sistema
+              // =========================================================================
+              if (existingPayable) {
+                // Se for comprovante, baixa o título existente
+                if (analysis.tipoDocumento === "COMPROVANTE_PAGAMENTO") {
+                  const valorReal = analysis.valor > 0 ? analysis.valor : existingPayable.valorOriginal;
 
-                if (payableMatch) {
-                  // Baixa no título existente
                   const att = await prisma.attachment.create({
                     data: {
                       categoria: "COMPROVANTE",
@@ -311,26 +425,27 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
                       mimeType,
                       tamanho: buffer.length,
                       competencia,
-                      payableId: payableMatch.id,
+                      payableId: existingPayable.id,
                     },
                   });
 
                   await prisma.paymentRecord.create({
                     data: {
                       tipo: "PAGAMENTO",
-                      payableId: payableMatch.id,
+                      payableId: existingPayable.id,
                       data: dataPag,
-                      valor: analysis.valor,
+                      valor: valorReal,
                       formaPagamento: "PIX",
                       comprovanteAnexoId: att.id,
-                      observacoes: `Baixa automática via e-mail (${contextSubject})`,
+                      observacoes: `Comprovante importado (${contextSubject})`,
                     },
                   });
 
                   await prisma.payable.update({
-                    where: { id: payableMatch.id },
+                    where: { id: existingPayable.id },
                     data: {
-                      valorPago: payableMatch.valorOriginal,
+                      valorOriginal: existingPayable.valorOriginal > 0 ? existingPayable.valorOriginal : valorReal,
+                      valorPago: valorReal,
                       status: "PAGO",
                       dataPagamento: dataPag,
                     },
@@ -338,32 +453,99 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
 
                   result.baixasEfetuadas++;
                   detalhesItens.push(
-                    `Baixa efetuada no título ${payableMatch.descricao} (R$ ${analysis.valor.toFixed(2)})`
+                    `Comprovante anexado ao título existente: ${existingPayable.descricao} (R$ ${valorReal.toFixed(2)})`
                   );
                 } else {
-                  // CRÍTICO: Se o título ainda não existia, cria diretamente como PAGO!
+                  // Se for boleto ou outro documento, apenas anexa ao título sem duplicar
+                  await prisma.attachment.create({
+                    data: {
+                      categoria: analysis.categoriaAnexo,
+                      nomeOriginal: fileName,
+                      nomeArquivo: uniqueFileName,
+                      caminho: filePath,
+                      mimeType,
+                      tamanho: buffer.length,
+                      competencia,
+                      payableId: existingPayable.id,
+                    },
+                  });
+
+                  if (existingPayable.valorOriginal === 0 && analysis.valor > 0) {
+                    await prisma.payable.update({
+                      where: { id: existingPayable.id },
+                      data: {
+                        valorOriginal: analysis.valor,
+                        linhaDigitavel: analysis.linhaDigitavel || existingPayable.linhaDigitavel,
+                      },
+                    });
+                  }
+
+                  detalhesItens.push(`Documento anexado ao título existente: ${existingPayable.descricao}`);
+                }
+              }
+              // =========================================================================
+              // CASO B: Título novo (não existia previamente)
+              // =========================================================================
+              else {
+                // APAA é a recebedora -> Contas a Receber
+                if (cleanRecebedor === companyCnpjClean) {
+                  const rec = await prisma.receivable.create({
+                    data: {
+                      descricao: analysis.descricao || `Recebimento: ${contextSubject}`,
+                      clienteNome: analysis.nomePagador || "Cliente Identificado via E-mail",
+                      clienteCpfCnpj: analysis.cnpjPagador || null,
+                      categoria: "SERVICOS",
+                      numeroNf: analysis.numeroDocumento || null,
+                      valorOriginal: analysis.valor,
+                      dataCompetencia: now,
+                      dataVencimento: dataVenc,
+                      status: analysis.tipoDocumento === "COMPROVANTE_PAGAMENTO" ? "RECEBIDO" : "PENDENTE",
+                      origem: "EMAIL_IA",
+                    },
+                  });
+
+                  await prisma.attachment.create({
+                    data: {
+                      categoria: analysis.categoriaAnexo,
+                      nomeOriginal: fileName,
+                      nomeArquivo: uniqueFileName,
+                      caminho: filePath,
+                      mimeType,
+                      tamanho: buffer.length,
+                      competencia,
+                      receivableId: rec.id,
+                    },
+                  });
+
+                  result.contasReceberCriadas++;
+                  detalhesItens.push(`Conta a Receber lançada: ${rec.descricao} (R$ ${rec.valorOriginal.toFixed(2)})`);
+                }
+                // APAA é a pagadora (Despesa) -> Contas a Pagar
+                else {
+                  const isJaPago = analysis.tipoDocumento === "COMPROVANTE_PAGAMENTO";
+
                   const pay = await prisma.payable.create({
                     data: {
-                      descricao: analysis.descricao || `Pagamento: ${contextSubject}`,
-                      fornecedorNome: analysis.nomeRecebedor || "Fornecedor / Beneficiário Identificado no Comprovante",
+                      descricao: analysis.descricao || contextSubject,
+                      fornecedorNome: analysis.nomeRecebedor || "Fornecedor Identificado no Documento",
                       fornecedorCpfCnpj: analysis.cnpjRecebedor || null,
-                      categoria: "OUTROS",
+                      categoria: analysis.categoriaAnexo === "BOLETO" ? "BOLETO" : "OUTROS",
                       numeroDocumento: analysis.numeroDocumento || null,
                       linhaDigitavel: analysis.linhaDigitavel || null,
                       chavePix: analysis.chavePix || null,
                       valorOriginal: analysis.valor,
-                      valorPago: analysis.valor,
+                      valorPago: isJaPago ? analysis.valor : 0,
                       dataCompetencia: now,
-                      dataVencimento: dataPag,
-                      dataPagamento: dataPag,
-                      status: "PAGO",
+                      dataVencimento: isJaPago ? dataPag : dataVenc,
+                      dataPagamento: isJaPago ? dataPag : null,
+                      status: isJaPago ? "PAGO" : "PENDENTE",
                       origem: "EMAIL_IA",
                     },
                   });
 
                   const att = await prisma.attachment.create({
                     data: {
-                      categoria: "COMPROVANTE",
+                      categoria: analysis.categoriaAnexo,
                       nomeOriginal: fileName,
                       nomeArquivo: uniqueFileName,
                       caminho: filePath,
@@ -374,112 +556,36 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
                     },
                   });
 
-                  await prisma.paymentRecord.create({
-                    data: {
-                      tipo: "PAGAMENTO",
-                      payableId: pay.id,
-                      data: dataPag,
-                      valor: analysis.valor,
-                      formaPagamento: "PIX",
-                      comprovanteAnexoId: att.id,
-                      observacoes: `Comprovante importado do e-mail (${contextSubject})`,
-                    },
-                  });
+                  if (isJaPago) {
+                    await prisma.paymentRecord.create({
+                      data: {
+                        tipo: "PAGAMENTO",
+                        payableId: pay.id,
+                        data: dataPag,
+                        valor: analysis.valor,
+                        formaPagamento: "PIX",
+                        comprovanteAnexoId: att.id,
+                        observacoes: `Comprovante importado do e-mail (${contextSubject})`,
+                      },
+                    });
+                    result.baixasEfetuadas++;
+                  }
 
                   result.contasPagarCriadas++;
-                  result.baixasEfetuadas++;
                   detalhesItens.push(
-                    `Conta paga lançada: ${pay.descricao} (R$ ${pay.valorOriginal.toFixed(2)})`
+                    `Conta a Pagar lançada (${pay.status}): ${pay.descricao} (R$ ${pay.valorOriginal.toFixed(2)})`
                   );
                 }
-              }
-              // APAA É A RECEBEDORA / EMISSORA -> Contas a Receber
-              else if (cleanRecebedor === companyCnpjClean) {
-                const dataVenc = analysis.dataVencimento
-                  ? new Date(analysis.dataVencimento)
-                  : new Date(Date.now() + 10 * 86400000);
-
-                const rec = await prisma.receivable.create({
-                  data: {
-                    descricao: analysis.descricao || `Recebimento de ${analysis.nomePagador || "Cliente"}`,
-                    clienteNome: analysis.nomePagador || "Cliente Identificado via E-mail",
-                    clienteCpfCnpj: analysis.cnpjPagador || null,
-                    categoria: "SERVICOS",
-                    numeroNf: analysis.numeroDocumento || null,
-                    valorOriginal: analysis.valor,
-                    dataCompetencia: now,
-                    dataVencimento: dataVenc,
-                    status: "PENDENTE",
-                    origem: "EMAIL_IA",
-                  },
-                });
-
-                await prisma.attachment.create({
-                  data: {
-                    categoria: "DOCUMENTO",
-                    nomeOriginal: fileName,
-                    nomeArquivo: uniqueFileName,
-                    caminho: filePath,
-                    mimeType,
-                    tamanho: buffer.length,
-                    competencia,
-                    receivableId: rec.id,
-                  },
-                });
-
-                result.contasReceberCriadas++;
-                detalhesItens.push(`Conta a Receber criada: ${rec.descricao} (R$ ${rec.valorOriginal.toFixed(2)})`);
-              }
-              // APAA É A PAGADORA OU FORNECEDOR EXTERNO -> Contas a Pagar Pendente
-              else {
-                const dataVenc = analysis.dataVencimento
-                  ? new Date(analysis.dataVencimento)
-                  : new Date(Date.now() + 5 * 86400000);
-
-                const pay = await prisma.payable.create({
-                  data: {
-                    descricao: analysis.descricao || `Conta de ${analysis.nomeRecebedor || "Fornecedor"}`,
-                    fornecedorNome: analysis.nomeRecebedor || "Fornecedor Identificado via E-mail",
-                    fornecedorCpfCnpj: analysis.cnpjRecebedor || null,
-                    categoria: analysis.categoriaAnexo === "BOLETO" ? "BOLETO" : "FORNECEDORES",
-                    numeroDocumento: analysis.numeroDocumento || null,
-                    linhaDigitavel: analysis.linhaDigitavel || null,
-                    chavePix: analysis.chavePix || null,
-                    valorOriginal: analysis.valor,
-                    dataCompetencia: now,
-                    dataVencimento: dataVenc,
-                    status: "PENDENTE",
-                    origem: "EMAIL_IA",
-                  },
-                });
-
-                await prisma.attachment.create({
-                  data: {
-                    categoria: analysis.categoriaAnexo,
-                    nomeOriginal: fileName,
-                    nomeArquivo: uniqueFileName,
-                    caminho: filePath,
-                    mimeType,
-                    tamanho: buffer.length,
-                    competencia,
-                    payableId: pay.id,
-                  },
-                });
-
-                result.contasPagarCriadas++;
-                detalhesItens.push(`Conta a Pagar criada: ${pay.descricao} (R$ ${pay.valorOriginal.toFixed(2)})`);
               }
             } catch (anexoErr: any) {
               result.erros.push(`Erro ao processar anexo ${fileName}: ${anexoErr.message}`);
             }
           }
 
-          // Marca mensagem como lida
           try {
             await client.messageFlagsAdd({ uid: item.uid }, ["\\Seen"]);
           } catch {}
 
-          // Registra no banco para não processar novamente
           await prisma.emailSyncLog.create({
             data: {
               messageId: item.messageId,
@@ -488,7 +594,7 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
               data: parsed.date || now,
               totalAnexos: totalAnexosMsg,
               status: result.erros.length === 0 ? "SUCESSO" : "PARCIAL",
-              resultadoIa: "Processado com IA Multimodal",
+              resultadoIa: "Processado com IA / Extrator Avançado",
               itensCriados: detalhesItens.join("; ") || "Nenhum documento financeiro extraído",
             },
           });
