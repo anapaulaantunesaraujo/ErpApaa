@@ -21,6 +21,13 @@ export async function GET(request: Request) {
     await prisma.$connect();
     logs.push("✔ Conexão com o PostgreSQL estabelecida com sucesso!");
 
+    try {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "attachments" ADD COLUMN IF NOT EXISTS "conteudoBase64" TEXT;`);
+      logs.push("✔ Coluna conteudoBase64 garantida na tabela attachments.");
+    } catch (e: any) {
+      logs.push(`Aviso na coluna de anexos: ${e.message}`);
+    }
+
     // 1. Garante o Usuário Administrador
     const adminEmail = "ana.antunes@apaatreinamento.net.br";
     const rawPassword = "123";

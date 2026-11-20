@@ -21,10 +21,196 @@ export interface EmailSyncResult {
   erros: string[];
 }
 
+/**
+ * Busca e extrai um anexo diretamente do Gmail via IMAP quando o arquivo não estiver em disco.
+ */
+export async function fetchAttachmentBufferFromGmail(
+  targetFileName: string
+): Promise<{ buffer: Buffer; mimeType: string; fileName: string } | null> {
+  const settings = await prisma.companySettings.findFirst();
+  const user = process.env.GMAIL_USER || settings?.emailUser || "apaaerp@gmail.com";
+  const pass = process.env.GMAIL_APP_PASS || settings?.emailPass || "fgut uliz evis bqdm";
+  const host = process.env.IMAP_HOST || settings?.emailHost || "imap.gmail.com";
+  const port = Number(process.env.IMAP_PORT || settings?.emailPort || 993);
+
+  const client = new ImapFlow({
+    host,
+    port,
+    secure: true,
+    auth: {
+      user,
+      pass: pass.replace(/\s+/g, ""),
+    },
+    logger: false,
+  });
+
+  try {
+    await client.connect();
+    const mailboxes = await client.list();
+    const candidateFolders: string[] = [];
+
+    for (const mb of mailboxes) {
+      const p = mb.path.toLowerCase();
+      const n = mb.name.toLowerCase();
+      if (
+        n === "financeiro" ||
+        p === "financeiro" ||
+        p.endsWith("/financeiro") ||
+        p.includes("salvos") ||
+        p.includes("comprovantes")
+      ) {
+        if (!candidateFolders.includes(mb.path)) candidateFolders.push(mb.path);
+      }
+    }
+
+    const inboxMb = mailboxes.find((mb) => mb.path.toUpperCase() === "INBOX" || mb.name.toUpperCase() === "INBOX");
+    if (inboxMb && !candidateFolders.includes(inboxMb.path)) candidateFolders.push(inboxMb.path);
+
+    const cleanTargetName = targetFileName.toLowerCase().trim();
+
+    for (const folderPath of candidateFolders) {
+      let lock;
+      try {
+        lock = await client.getMailboxLock(folderPath);
+      } catch {
+        continue;
+      }
+
+      try {
+        const total = client.mailbox ? client.mailbox.exists : 0;
+        if (total === 0) continue;
+
+        const startSeq = Math.max(1, total - 25);
+        const messagesCursor = client.fetch(`${startSeq}:*`, { uid: true, envelope: true });
+
+        for await (const msg of messagesCursor) {
+          const full = await client.fetchOne(msg.uid, { source: true }, { uid: true });
+          if (!full || !full.source) continue;
+
+          const parsed: any = await simpleParser(full.source);
+          const allAttachments = await extrairTodosOsAnexos(parsed);
+
+          for (const att of allAttachments) {
+            const attNameLower = att.fileName.toLowerCase().trim();
+            if (
+              attNameLower === cleanTargetName ||
+              attNameLower.includes(cleanTargetName) ||
+              cleanTargetName.includes(attNameLower)
+            ) {
+              return {
+                buffer: att.buffer,
+                mimeType: att.mimeType,
+                fileName: att.fileName,
+              };
+            }
+          }
+        }
+      } finally {
+        lock.release();
+      }
+    }
+  } catch (err: any) {
+    console.error("Erro ao buscar anexo no Gmail:", err.message);
+  } finally {
+    try {
+      await client.logout();
+    } catch {}
+  }
+
+  return null;
+}
+
+// Função recursiva para desempacotar e-mails anexados (.eml / message/rfc822)
+export async function extrairTodosOsAnexos(
+  parsedMail: any,
+  depth = 0
+): Promise<Array<{ buffer: Buffer; fileName: string; mimeType: string; contextSubject?: string }>> {
+  const lista: Array<{ buffer: Buffer; fileName: string; mimeType: string; contextSubject?: string }> = [];
+  if (depth > 5) return lista;
+
+  for (const att of parsedMail.attachments || []) {
+    const fn = att.filename || `anexo_${Date.now()}.bin`;
+    const ct = (att.contentType || "").toLowerCase();
+
+    const isEml =
+      ct.includes("message/rfc822") ||
+      ct.includes("message/rfc2822") ||
+      fn.toLowerCase().endsWith(".eml") ||
+      fn.toLowerCase().endsWith(".msg");
+
+    if (isEml && att.content) {
+      try {
+        const subMail: any = await simpleParser(att.content);
+        const subSubject = subMail.subject || fn.replace(/\.eml$/i, "");
+        const subAnexos = await extrairTodosOsAnexos(subMail, depth + 1);
+
+        if (subAnexos.length > 0) {
+          for (const sa of subAnexos) {
+            lista.push({
+              ...sa,
+              contextSubject: sa.contextSubject || subSubject,
+            });
+          }
+        } else {
+          const textContent = subMail.text || (subMail.html ? subMail.html.replace(/<[^>]+>/g, " ") : "");
+          if (textContent && textContent.trim().length > 20) {
+            lista.push({
+              buffer: Buffer.from(textContent, "utf-8"),
+              fileName: `${subSubject.replace(/[^a-zA-Z0-9_-]/g, "_")}.txt`,
+              mimeType: "text/plain",
+              contextSubject: subSubject,
+            });
+          }
+        }
+      } catch (emlErr) {
+        console.warn(`Erro ao desempacotar e-mail anexado ${fn}:`, emlErr);
+        lista.push({
+          buffer: att.content,
+          fileName: fn,
+          mimeType: att.contentType || "application/octet-stream",
+          contextSubject: parsedMail.subject,
+        });
+      }
+    } else if (att.content) {
+      lista.push({
+        buffer: att.content,
+        fileName: fn,
+        mimeType: att.contentType || "application/octet-stream",
+        contextSubject: parsedMail.subject,
+      });
+    }
+  }
+
+  if (lista.length === 0 && depth === 0) {
+    const textContent = parsedMail.text || (parsedMail.html ? parsedMail.html.replace(/<[^>]+>/g, " ") : "");
+    const lower = textContent.toLowerCase();
+    if (
+      lower.includes("comprovante") ||
+      lower.includes("boleto") ||
+      lower.includes("pagamento") ||
+      lower.includes("transferência") ||
+      lower.includes("pix")
+    ) {
+      lista.push({
+        buffer: Buffer.from(textContent, "utf-8"),
+        fileName: `${(parsedMail.subject || "email").replace(/[^a-zA-Z0-9_-]/g, "_")}.txt`,
+        mimeType: "text/plain",
+        contextSubject: parsedMail.subject,
+      });
+    }
+  }
+
+  return lista;
+}
+
 export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult> {
   const startTime = Date.now();
-  // Limite estrito de 35 segundos para responder bem antes do timeout do Cloud Run
-  const MAX_EXECUTION_TIME_MS = 35_000;
+  const MAX_EXECUTION_TIME_MS = 38_000;
+
+  // Garante a coluna conteudoBase64 na tabela de anexos para persistência definitiva no Cloud Run
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "attachments" ADD COLUMN IF NOT EXISTS "conteudoBase64" TEXT;`);
+  } catch {}
 
   const settings = await prisma.companySettings.findFirst();
 
@@ -55,7 +241,7 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
   const competencia = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
   // =========================================================================
-  // ETAPA 1: Auto-correção de registros prévios zerados e remoção de duplicados
+  // ETAPA 1: Auto-recuperação dos arquivos e preenchimento dos valores zerados
   // =========================================================================
   try {
     const zeroPayables = await prisma.payable.findMany({
@@ -64,21 +250,48 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
     });
 
     for (const p of zeroPayables) {
+      if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) break;
+
       if (p.anexos && p.anexos.length > 0) {
         for (const att of p.anexos) {
-          const possiblePaths = [
-            att.caminho,
-            path.join(uploadDir, att.nomeArquivo),
-            path.join(process.cwd(), "public", "uploads", "anexos", att.nomeArquivo),
-            path.join("/tmp", "uploads", "anexos", att.nomeArquivo),
-          ];
-
           let buf: Buffer | null = null;
-          for (const pth of possiblePaths) {
-            try {
-              buf = await fs.readFile(pth);
-              break;
-            } catch {}
+
+          // 1. Tenta recuperar do campo conteudoBase64 do banco
+          if (att.conteudoBase64) {
+            buf = Buffer.from(att.conteudoBase64, "base64");
+          }
+
+          // 2. Tenta recuperar do disco local
+          if (!buf) {
+            const possiblePaths = [
+              att.caminho,
+              path.join(uploadDir, att.nomeArquivo),
+              path.join(process.cwd(), "public", "uploads", "anexos", att.nomeArquivo),
+              path.join("/tmp", "uploads", "anexos", att.nomeArquivo),
+            ];
+            for (const pth of possiblePaths) {
+              try {
+                buf = await fs.readFile(pth);
+                break;
+              } catch {}
+            }
+          }
+
+          // 3. Se não estiver em disco nem no banco, busca no Gmail
+          if (!buf && att.nomeOriginal) {
+            const fetched = await fetchAttachmentBufferFromGmail(att.nomeOriginal);
+            if (fetched) {
+              buf = fetched.buffer;
+              // Salva em disco e no banco para acesso instantâneo
+              try {
+                const diskPath = path.join(uploadDir, att.nomeArquivo);
+                await fs.writeFile(diskPath, buf);
+                await prisma.attachment.update({
+                  where: { id: att.id },
+                  data: { conteudoBase64: buf.toString("base64"), caminho: diskPath },
+                });
+              } catch {}
+            }
           }
 
           if (buf) {
@@ -103,18 +316,22 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
       }
     }
 
-    // Limpa duplicidades de títulos com a mesma descrição e anexos repetidos
+    // Limpeza de duplicidades de registros anteriores
     const allPayables = await prisma.payable.findMany({
       orderBy: { createdAt: "asc" },
       include: { anexos: true },
     });
 
-    const seenDesc = new Map<string, string>();
+    const seenEntries = new Map<string, string>();
     for (const item of allPayables) {
-      const key = `${item.descricao}_${item.valorOriginal}_${item.status}`.toLowerCase();
-      if (seenDesc.has(key)) {
-        // Se for duplicata idêntica, move os anexos para o primeiro e remove a duplicata
-        const originalId = seenDesc.get(key)!;
+      // Normaliza identificador (por nome de anexo ou descrição limpa)
+      const firstAtt = item.anexos?.[0]?.nomeOriginal?.toLowerCase() || "";
+      const descClean = item.descricao.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const key = firstAtt ? `att_${firstAtt}` : `desc_${descClean}_${item.status}`;
+
+      if (seenEntries.has(key)) {
+        const originalId = seenEntries.get(key)!;
+        // Transfere anexos para o registro original
         if (item.anexos && item.anexos.length > 0) {
           for (const a of item.anexos) {
             await prisma.attachment.update({
@@ -126,15 +343,15 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
         await prisma.payable.delete({ where: { id: item.id } });
         result.duplicadosRemovidos = (result.duplicadosRemovidos || 0) + 1;
       } else {
-        seenDesc.set(key, item.id);
+        seenEntries.set(key, item.id);
       }
     }
   } catch (cleanErr: any) {
-    console.warn("Aviso na etapa de auto-correção de registros prévios:", cleanErr.message);
+    console.warn("Aviso na etapa de auto-recuperação:", cleanErr.message);
   }
 
   // =========================================================================
-  // ETAPA 2: Conexão e busca inteligente de novos e-mails no Gmail
+  // ETAPA 2: Conexão IMAP e Processamento de Novos E-mails
   // =========================================================================
   const client = new ImapFlow({
     host,
@@ -149,96 +366,11 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
 
   const processedMessageIdsInRun = new Set<string>();
 
-  // Função recursiva para desempacotar e-mails anexados (.eml / message/rfc822)
-  async function extrairTodosOsAnexos(
-    parsedMail: any,
-    depth = 0
-  ): Promise<Array<{ buffer: Buffer; fileName: string; mimeType: string; contextSubject?: string }>> {
-    const lista: Array<{ buffer: Buffer; fileName: string; mimeType: string; contextSubject?: string }> = [];
-    if (depth > 5) return lista;
-
-    for (const att of parsedMail.attachments || []) {
-      const fn = att.filename || `anexo_${Date.now()}.bin`;
-      const ct = (att.contentType || "").toLowerCase();
-
-      const isEml =
-        ct.includes("message/rfc822") ||
-        ct.includes("message/rfc2822") ||
-        fn.toLowerCase().endsWith(".eml") ||
-        fn.toLowerCase().endsWith(".msg");
-
-      if (isEml && att.content) {
-        try {
-          const subMail: any = await simpleParser(att.content);
-          const subSubject = subMail.subject || fn.replace(/\.eml$/i, "");
-          const subAnexos = await extrairTodosOsAnexos(subMail, depth + 1);
-
-          if (subAnexos.length > 0) {
-            for (const sa of subAnexos) {
-              lista.push({
-                ...sa,
-                contextSubject: sa.contextSubject || subSubject,
-              });
-            }
-          } else {
-            const textContent = subMail.text || (subMail.html ? subMail.html.replace(/<[^>]+>/g, " ") : "");
-            if (textContent && textContent.trim().length > 20) {
-              lista.push({
-                buffer: Buffer.from(textContent, "utf-8"),
-                fileName: `${subSubject.replace(/[^a-zA-Z0-9_-]/g, "_")}.txt`,
-                mimeType: "text/plain",
-                contextSubject: subSubject,
-              });
-            }
-          }
-        } catch (emlErr) {
-          console.warn(`Erro ao desempacotar e-mail anexado ${fn}:`, emlErr);
-          lista.push({
-            buffer: att.content,
-            fileName: fn,
-            mimeType: att.contentType || "application/octet-stream",
-            contextSubject: parsedMail.subject,
-          });
-        }
-      } else if (att.content) {
-        lista.push({
-          buffer: att.content,
-          fileName: fn,
-          mimeType: att.contentType || "application/octet-stream",
-          contextSubject: parsedMail.subject,
-        });
-      }
-    }
-
-    if (lista.length === 0 && depth === 0) {
-      const textContent = parsedMail.text || (parsedMail.html ? parsedMail.html.replace(/<[^>]+>/g, " ") : "");
-      const lower = textContent.toLowerCase();
-      if (
-        lower.includes("comprovante") ||
-        lower.includes("boleto") ||
-        lower.includes("pagamento") ||
-        lower.includes("transferência") ||
-        lower.includes("pix")
-      ) {
-        lista.push({
-          buffer: Buffer.from(textContent, "utf-8"),
-          fileName: `${(parsedMail.subject || "email").replace(/[^a-zA-Z0-9_-]/g, "_")}.txt`,
-          mimeType: "text/plain",
-          contextSubject: parsedMail.subject,
-        });
-      }
-    }
-
-    return lista;
-  }
-
   try {
     await client.connect();
-
     const mailboxes = await client.list();
     const candidateFolders: string[] = [];
 
-    // Prioridade 1: Pastas com "financeiro" ou pasta configurada
     for (const mb of mailboxes) {
       const p = mb.path.toLowerCase();
       const n = mb.name.toLowerCase();
@@ -252,7 +384,6 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
       }
     }
 
-    // Prioridade 2: Pastas contendo "salvos" ou "comprovantes"
     for (const mb of mailboxes) {
       const p = mb.path.toLowerCase();
       if (p.includes("salvos") || p.includes("comprovantes")) {
@@ -260,7 +391,6 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
       }
     }
 
-    // Prioridade 3: INBOX
     const inboxMb = mailboxes.find(
       (mb) => mb.path.toUpperCase() === "INBOX" || mb.name.toUpperCase() === "INBOX"
     );
@@ -304,6 +434,7 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
 
           if (processedMessageIdsInRun.has(msgId)) continue;
 
+          // Se já existe log no banco, só processa se houver títulos zerados que necessitem reanálise
           const existingLog = await prisma.emailSyncLog.findFirst({
             where: { messageId: msgId },
           });
@@ -343,6 +474,8 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
             const filePath = path.join(uploadDir, uniqueFileName);
             await fs.writeFile(filePath, buffer);
 
+            const base64Content = buffer.toString("base64");
+
             try {
               const analysis = await analyzeFinancialDocumentWithAI(
                 buffer,
@@ -356,13 +489,9 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
               const dataPag = analysis.dataPagamento ? new Date(analysis.dataPagamento) : now;
               const dataVenc = analysis.dataVencimento ? new Date(analysis.dataVencimento) : dataPag;
 
-              // =========================================================================
-              // LÓGICA DE DEDUPLICAÇÃO & UNIFICAÇÃO (Boleto vs Comprovante)
-              // =========================================================================
-              // Verifica se já existe um título no sistema correspondente a este documento
               let existingPayable: any = null;
 
-              // 1. Busca por nome de anexo idêntico
+              // Busca título existente para vincular (sem duplicar!)
               const attMatch = await prisma.attachment.findFirst({
                 where: { nomeOriginal: fileName, payableId: { not: null } },
                 include: { payable: true },
@@ -371,7 +500,6 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
                 existingPayable = attMatch.payable;
               }
 
-              // 2. Busca por valor e termos-chave na descrição (Sicredi, INSS, Unimed, Contabilidade, etc.)
               if (!existingPayable) {
                 const normSearch = `${contextSubject} ${fileName} ${analysis.descricao}`.toLowerCase();
                 const keywords = ["sicredi", "inss", "unimed", "contabilidade", "distribuicao", "distribuição", "5428"];
@@ -394,7 +522,6 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
                 }
               }
 
-              // 3. Busca por valor aproximado (+- 0.50) se valor > 0
               if (!existingPayable && analysis.valor > 0) {
                 existingPayable = await prisma.payable.findFirst({
                   where: {
@@ -408,11 +535,8 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
                 });
               }
 
-              // =========================================================================
               // CASO A: Título já existia no sistema
-              // =========================================================================
               if (existingPayable) {
-                // Se for comprovante, baixa o título existente
                 if (analysis.tipoDocumento === "COMPROVANTE_PAGAMENTO") {
                   const valorReal = analysis.valor > 0 ? analysis.valor : existingPayable.valorOriginal;
 
@@ -422,6 +546,7 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
                       nomeOriginal: fileName,
                       nomeArquivo: uniqueFileName,
                       caminho: filePath,
+                      conteudoBase64: base64Content,
                       mimeType,
                       tamanho: buffer.length,
                       competencia,
@@ -456,13 +581,13 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
                     `Comprovante anexado ao título existente: ${existingPayable.descricao} (R$ ${valorReal.toFixed(2)})`
                   );
                 } else {
-                  // Se for boleto ou outro documento, apenas anexa ao título sem duplicar
                   await prisma.attachment.create({
                     data: {
                       categoria: analysis.categoriaAnexo,
                       nomeOriginal: fileName,
                       nomeArquivo: uniqueFileName,
                       caminho: filePath,
+                      conteudoBase64: base64Content,
                       mimeType,
                       tamanho: buffer.length,
                       competencia,
@@ -479,15 +604,11 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
                       },
                     });
                   }
-
                   detalhesItens.push(`Documento anexado ao título existente: ${existingPayable.descricao}`);
                 }
               }
-              // =========================================================================
-              // CASO B: Título novo (não existia previamente)
-              // =========================================================================
+              // CASO B: Novo título
               else {
-                // APAA é a recebedora -> Contas a Receber
                 if (cleanRecebedor === companyCnpjClean) {
                   const rec = await prisma.receivable.create({
                     data: {
@@ -510,6 +631,7 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
                       nomeOriginal: fileName,
                       nomeArquivo: uniqueFileName,
                       caminho: filePath,
+                      conteudoBase64: base64Content,
                       mimeType,
                       tamanho: buffer.length,
                       competencia,
@@ -519,9 +641,7 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
 
                   result.contasReceberCriadas++;
                   detalhesItens.push(`Conta a Receber lançada: ${rec.descricao} (R$ ${rec.valorOriginal.toFixed(2)})`);
-                }
-                // APAA é a pagadora (Despesa) -> Contas a Pagar
-                else {
+                } else {
                   const isJaPago = analysis.tipoDocumento === "COMPROVANTE_PAGAMENTO";
 
                   const pay = await prisma.payable.create({
@@ -549,6 +669,7 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
                       nomeOriginal: fileName,
                       nomeArquivo: uniqueFileName,
                       caminho: filePath,
+                      conteudoBase64: base64Content,
                       mimeType,
                       tamanho: buffer.length,
                       competencia,
@@ -594,7 +715,7 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
               data: parsed.date || now,
               totalAnexos: totalAnexosMsg,
               status: result.erros.length === 0 ? "SUCESSO" : "PARCIAL",
-              resultadoIa: "Processado com IA / Extrator Avançado",
+              resultadoIa: "Processado com Extrator Nativo e Armazenamento Durável",
               itensCriados: detalhesItens.join("; ") || "Nenhum documento financeiro extraído",
             },
           });

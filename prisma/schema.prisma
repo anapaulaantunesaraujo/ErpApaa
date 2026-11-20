@@ -234,6 +234,7 @@ model Attachment {
   nomeOriginal    String
   nomeArquivo     String
   caminho         String         // Caminho absoluto ou relativo em storage
+  conteudoBase64  String?        // Conteúdo do arquivo em Base64 para persistência durável no Cloud Run
   mimeType        String
   tamanho         Int
   competencia     String         // Ex: "2026-09"
