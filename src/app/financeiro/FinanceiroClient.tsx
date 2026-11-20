@@ -834,7 +834,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
               <ArrowDownRight className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-red-600 mt-2 font-mono">
+          <p className="text-2xl font-bold text-red-600 mt-2 font-sans tabular-nums">
             R$ {totalPagarPendente.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
           </p>
           <p className="text-[11px] text-muted-foreground mt-1">
@@ -849,7 +849,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
               <ArrowUpRight className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-emerald-600 mt-2 font-mono">
+          <p className="text-2xl font-bold text-emerald-600 mt-2 font-sans tabular-nums">
             R$ {totalReceberPendente.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
           </p>
           <p className="text-[11px] text-muted-foreground mt-1">
@@ -864,7 +864,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
               <FileSpreadsheet className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-lg font-bold text-foreground mt-2 font-mono">
+          <p className="text-lg font-bold text-foreground mt-2 font-sans tabular-nums">
             {extratoStatement ? `${extratoStatement.transacoes?.length || 0} Lançamentos` : "Não Importado"}
           </p>
           <p className="text-[11px] text-muted-foreground mt-1">
@@ -993,7 +993,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                             )}
                           </div>
                         </td>
-                        <td className="py-3 px-4 text-right font-mono font-bold text-red-600">
+                        <td className="py-3 px-4 text-right font-sans font-bold tabular-nums text-red-600">
                           R$ {p.valorOriginal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                         </td>
                         <td className="py-3 px-4 text-center">
@@ -1152,7 +1152,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                             "-"
                           )}
                         </td>
-                        <td className="py-3 px-4 text-right font-mono font-bold text-emerald-600">
+                        <td className="py-3 px-4 text-right font-sans font-bold tabular-nums text-emerald-600">
                           R$ {r.valorOriginal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                         </td>
                         <td className="py-3 px-4 text-center">
@@ -1293,13 +1293,13 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                   <div className="mt-4 pt-4 border-t border-border grid grid-cols-2 gap-2 text-xs">
                     <div>
                       <span className="text-[10px] text-muted-foreground block uppercase">Fatura {selectedMes}/{selectedAno}</span>
-                      <strong className="text-sm font-mono text-[#0B3D91]">
+                      <strong className="text-sm font-sans font-bold tabular-nums text-[#0B3D91]">
                         R$ {valorFatura.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                       </strong>
                     </div>
                     <div className="text-right">
                       <span className="text-[10px] text-muted-foreground block uppercase">Fecha / Vence</span>
-                      <span className="font-mono font-semibold">Dia {card.diaFechamento} / {card.diaVencimento}</span>
+                      <span className="font-sans font-semibold tabular-nums">Dia {card.diaFechamento} / {card.diaVencimento}</span>
                     </div>
                   </div>
                 </div>
@@ -1339,7 +1339,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                       </div>
                       <div className="flex items-center justify-between text-[11px] pt-1">
                         <span className="text-muted-foreground">{cat.qtd} compra(s)</span>
-                        <strong className="font-mono text-foreground">
+                        <strong className="font-sans font-bold tabular-nums text-foreground">
                           R$ {cat.total.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                         </strong>
                       </div>
@@ -1425,7 +1425,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                         <td className="py-3 px-4 text-center font-mono text-muted-foreground">
                           {exp.parcelaAtual} / {exp.totalParcelas}
                         </td>
-                        <td className="py-3 px-4 text-right font-mono font-bold text-foreground">
+                        <td className="py-3 px-4 text-right font-sans font-bold tabular-nums text-foreground">
                           R$ {exp.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                         </td>
                       </tr>
@@ -1491,7 +1491,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                 <div className="pt-3 border-t border-border space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Saldo Inicial Cadastrado:</span>
-                    <span className="font-mono">R$ {account.saldoInicial.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</span>
+                    <span className="font-sans font-medium tabular-nums">R$ {account.saldoInicial.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</span>
                   </div>
 
                   <div className="flex items-center justify-between text-xs">
@@ -1499,7 +1499,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                       <ArrowUpRight className="w-3.5 h-3.5" />
                       Recebimentos Baixados:
                     </span>
-                    <span className="font-mono text-emerald-600 font-semibold">
+                    <span className="font-sans text-emerald-600 font-semibold tabular-nums">
                       + R$ {(account.totalEntradas || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                     </span>
                   </div>
@@ -1509,7 +1509,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                       <ArrowDownRight className="w-3.5 h-3.5" />
                       Pagamentos Efetuados:
                     </span>
-                    <span className="font-mono text-red-600 font-semibold">
+                    <span className="font-sans text-red-600 font-semibold tabular-nums">
                       - R$ {(account.totalSaidas || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                     </span>
                   </div>
@@ -1517,7 +1517,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                   <div className="pt-2 border-t border-border flex items-center justify-between">
                     <span className="text-xs font-bold text-foreground uppercase">Saldo Real Atual:</span>
                     <strong
-                      className={`text-lg font-mono font-bold ${
+                      className={`text-lg font-sans font-bold tabular-nums ${
                         (account.saldoCalculado ?? account.saldoInicial) >= 0 ? "text-foreground" : "text-red-600"
                       }`}
                     >
@@ -2294,7 +2294,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                   step="0.01"
                   value={baixaModal.valor}
                   onChange={(e) => setBaixaModal({ ...baixaModal, valor: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono font-bold focus:ring-2 focus:ring-[#00A6FF] outline-none"
+                  className="w-full px-3 py-2 rounded-xl border border-border bg-background font-sans font-bold tabular-nums focus:ring-2 focus:ring-[#00A6FF] outline-none"
                 />
               </div>
 
@@ -2727,7 +2727,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                     placeholder="0.00"
                     value={newCardExpenseForm.valor}
                     onChange={(e) => setNewCardExpenseForm({ ...newCardExpenseForm, valor: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono font-bold focus:ring-2 focus:ring-[#00A6FF] outline-none"
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-sans font-bold tabular-nums focus:ring-2 focus:ring-[#00A6FF] outline-none"
                   />
                 </div>
                 <div>
@@ -2836,7 +2836,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                     required
                     value={editPayableModal.valor}
                     onChange={(e) => setEditPayableModal({ ...editPayableModal, valor: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono font-bold text-red-600 focus:ring-2 focus:ring-[#00A6FF] outline-none"
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-sans font-bold tabular-nums text-red-600 focus:ring-2 focus:ring-[#00A6FF] outline-none"
                   />
                 </div>
                 <div>
@@ -2942,7 +2942,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                     required
                     value={editReceivableModal.valor}
                     onChange={(e) => setEditReceivableModal({ ...editReceivableModal, valor: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono font-bold text-emerald-600 focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-sans font-bold tabular-nums text-emerald-600 focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
                 </div>
                 <div>
