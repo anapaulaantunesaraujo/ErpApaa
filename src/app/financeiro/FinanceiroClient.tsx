@@ -35,6 +35,10 @@ import {
   Edit2,
   Trash2,
   X,
+  Terminal,
+  Copy,
+  Check,
+  RefreshCw,
 } from "lucide-react";
 
 interface FinanceiroClientProps {
@@ -42,7 +46,52 @@ interface FinanceiroClientProps {
 }
 
 export default function FinanceiroClient({ user }: FinanceiroClientProps) {
-  const [activeTab, setActiveTab] = useState<"pagar" | "receber" | "cartao" | "contas" | "extrato" | "fechamento" | "ia">("pagar");
+  const [activeTab, setActiveTab] = useState<"pagar" | "receber" | "cartao" | "contas" | "extrato" | "fechamento" | "ia" | "logs">("pagar");
+
+  // Estados para Logs & Diagnóstico da IA
+  const [logsData, setLogsData] = useState<any[]>([]);
+  const [logsPromptMarkdown, setLogsPromptMarkdown] = useState<string>("");
+  const [loadingLogs, setLoadingLogs] = useState<boolean>(false);
+  const [logsFilter, setLogsFilter] = useState<string>("TODOS");
+  const [copiedPrompt, setCopiedPrompt] = useState<boolean>(false);
+
+  const fetchLogs = async () => {
+    setLoadingLogs(true);
+    try {
+      const res = await fetch("/api/financeiro/logs");
+      const data = await res.json();
+      if (data.success) {
+        setLogsData(data.logs || []);
+        setLogsPromptMarkdown(data.promptMarkdown || "");
+      }
+    } catch (e) {
+      console.error("Erro ao carregar logs:", e);
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
+
+  const handleCopyLogsPrompt = () => {
+    if (!logsPromptMarkdown) return;
+    navigator.clipboard.writeText(logsPromptMarkdown);
+    setCopiedPrompt(true);
+    setTimeout(() => setCopiedPrompt(false), 3000);
+  };
+
+  const handleClearLogs = async () => {
+    if (!window.confirm("Deseja realmente limpar todos os logs de auditoria?")) return;
+    try {
+      await fetch("/api/financeiro/logs", { method: "DELETE" });
+      setLogsData([]);
+      setLogsPromptMarkdown("");
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (activeTab === "logs") {
+      fetchLogs();
+    }
+  }, [activeTab]);
 
   // Dados de Contas a Pagar e Receber
   const [payables, setPayables] = useState<any[]>([]);
@@ -764,6 +813,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
           { id: "extrato", label: "Extrato & Conciliação Sicredi", icon: FileSpreadsheet },
           { id: "fechamento", label: "Fechamento Mensal & Envio", icon: FolderArchive },
           { id: "ia", label: "Automação com IA & Gmail", icon: Bot },
+          { id: "logs", label: "Logs & Diagnóstico", icon: Terminal },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -1649,6 +1699,19 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                 <p className="text-xs text-muted-foreground max-w-xl">
                   O app acessa a caixa do <strong>apaaerp@gmail.com</strong>, lê os e-mails com notas, comprovantes e boletos anexados, processa os arquivos com IA e efetua os lançamentos e baixas correspondentes.
                 </p>
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab("logs");
+                      fetchLogs();
+                    }}
+                    className="inline-flex items-center gap-1.5 text-xs text-[#00A6FF] font-bold hover:underline cursor-pointer"
+                  >
+                    <Terminal className="w-3.5 h-3.5" />
+                    <span>Ver Logs Técnicos & Diagnóstico da IA</span>
+                  </button>
+                </div>
               </div>
 
               <button
@@ -1794,6 +1857,174 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                   </div>
                 </div>
               </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ABA 8: LOGS & DIAGNÓSTICO TÉCNICO DA IA */}
+      {/* ========================================================================= */}
+      {activeTab === "logs" && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-card border border-border p-6 rounded-2xl shadow-xs">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-[#0B3D91]/10 text-[#0B3D91] flex items-center justify-center">
+                  <Terminal className="w-4 h-4" />
+                </div>
+                <h2 className="text-lg font-bold text-foreground">Logs de Auditoria &amp; Diagnóstico da IA</h2>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Rastreamento técnico de conexões IMAP, e-mails localizados, anexos desempacotados, valores e eventuais erros.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={handleCopyLogsPrompt}
+                disabled={logsData.length === 0}
+                className="px-4 py-2.5 rounded-xl bg-[#00A6FF] hover:bg-[#0091e0] text-[#06152d] font-bold text-xs flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-50 transition-all"
+              >
+                {copiedPrompt ? (
+                  <>
+                    <Check className="w-4 h-4 text-emerald-900" />
+                    <span>Copiado! Cole no Chat com o Assistente</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    <span>Copiar Logs no Modelo Prompt</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={fetchLogs}
+                disabled={loadingLogs}
+                title="Atualizar Logs"
+                className="p-2.5 rounded-xl border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-all cursor-pointer"
+              >
+                <RefreshCw className={`w-4 h-4 ${loadingLogs ? "animate-spin" : ""}`} />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleClearLogs}
+                title="Limpar Histórico de Logs"
+                className="p-2.5 rounded-xl border border-border hover:bg-red-50 hover:text-red-600 text-muted-foreground transition-all cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Filtros de Logs */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
+            {["TODOS", "ERROR", "WARN", "SUCCESS", "INFO"].map((flt) => {
+              const count = flt === "TODOS" ? logsData.length : logsData.filter((l) => l.nivel === flt).length;
+              const isSelected = logsFilter === flt;
+              return (
+                <button
+                  key={flt}
+                  onClick={() => setLogsFilter(flt)}
+                  className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    isSelected
+                      ? "bg-[#0B3D91] text-white shadow-xs"
+                      : "bg-card border border-border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <span>
+                    {flt === "TODOS"
+                      ? "Todos"
+                      : flt === "ERROR"
+                      ? "Erros ❌"
+                      : flt === "WARN"
+                      ? "Alertas ⚠️"
+                      : flt === "SUCCESS"
+                      ? "Sucesso ✅"
+                      : "Informações ℹ️"}
+                  </span>
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${isSelected ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"}`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Lista de Logs */}
+          <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-xs divide-y divide-border">
+            {loadingLogs ? (
+              <div className="p-8 text-center text-muted-foreground flex flex-col items-center justify-center gap-2">
+                <Loader2 className="w-6 h-6 animate-spin text-[#00A6FF]" />
+                <span className="text-xs">Carregando histórico de logs...</span>
+              </div>
+            ) : logsData.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground space-y-2">
+                <Terminal className="w-8 h-8 mx-auto text-slate-400" />
+                <p className="text-xs font-semibold">Nenhum log registrado ainda.</p>
+                <p className="text-[11px] text-slate-400">
+                  Clique em &quot;Verificar e Importar E-mails Agora&quot; na aba Financeiro para que o sistema registre cada ação e diagnóstico aqui.
+                </p>
+              </div>
+            ) : (
+              logsData
+                .filter((l) => logsFilter === "TODOS" || l.nivel === logsFilter)
+                .map((log) => {
+                  const nivelColors =
+                    log.nivel === "ERROR"
+                      ? "border-l-red-500 bg-red-50/20 dark:bg-red-950/10"
+                      : log.nivel === "WARN"
+                      ? "border-l-amber-500 bg-amber-50/20 dark:bg-amber-950/10"
+                      : log.nivel === "SUCCESS"
+                      ? "border-l-emerald-500 bg-emerald-50/20 dark:bg-emerald-950/10"
+                      : "border-l-blue-500 bg-blue-50/20 dark:bg-blue-950/10";
+
+                  const badgeColors =
+                    log.nivel === "ERROR"
+                      ? "bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-300"
+                      : log.nivel === "WARN"
+                      ? "bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300"
+                      : log.nivel === "SUCCESS"
+                      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300"
+                      : "bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300";
+
+                  return (
+                    <div key={log.id} className={`p-4 border-l-4 text-xs space-y-1.5 transition-colors ${nivelColors}`}>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${badgeColors}`}>
+                            {log.tipo}
+                          </span>
+                          <strong className="text-foreground text-sm font-semibold">{log.titulo}</strong>
+                        </div>
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          {new Date(log.createdAt).toLocaleTimeString("pt-BR", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          })}
+                        </span>
+                      </div>
+
+                      <p className="text-muted-foreground leading-relaxed">{log.mensagem}</p>
+
+                      {log.detalhes && (
+                        <details className="mt-2 group">
+                          <summary className="cursor-pointer font-bold text-[11px] text-[#00A6FF] hover:underline select-none">
+                            Ver Detalhes Técnicos &amp; JSON
+                          </summary>
+                          <pre className="mt-1.5 p-3 rounded-xl bg-slate-900 text-slate-100 font-mono text-[10.5px] overflow-x-auto whitespace-pre-wrap max-h-64">
+                            {log.detalhes}
+                          </pre>
+                        </details>
+                      )}
+                    </div>
+                  );
+                })
             )}
           </div>
         </div>

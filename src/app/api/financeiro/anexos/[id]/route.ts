@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
-import { fetchAttachmentBufferFromGmail } from "@/lib/services/gmail-sync-service";
+import { addAuditLog } from "@/lib/services/audit-logger";
 import fs from "fs/promises";
 import path from "path";
 
@@ -25,12 +25,18 @@ export async function GET(
     });
 
     if (!attachment) {
+      await addAuditLog(
+        "ANEXO_DOWNLOAD",
+        "WARN",
+        "Tentativa de acesso a anexo inexistente",
+        `ID: ${id}`
+      );
       return NextResponse.json({ error: "Anexo não encontrado no banco de dados." }, { status: 404 });
     }
 
     let fileBuffer: Buffer | null = null;
 
-    // 1. Prioridade A: Conteúdo armazenado diretamente no banco (durável no Cloud Run)
+    // 1. Prioridade A: Conteúdo persistido de forma durável no banco (Cloud SQL)
     if (attachment.conteudoBase64) {
       fileBuffer = Buffer.from(attachment.conteudoBase64, "base64");
     }
@@ -53,37 +59,19 @@ export async function GET(
       }
     }
 
-    // 3. Prioridade C: Recuperação sob demanda diretamente do Gmail IMAP
-    if (!fileBuffer && attachment.nomeOriginal) {
-      const fetched = await fetchAttachmentBufferFromGmail(attachment.nomeOriginal);
-      if (fetched) {
-        fileBuffer = fetched.buffer;
-
-        // Persiste no banco e no disco para as próximas requisições serem instantâneas
-        try {
-          const uploadDir = path.join(process.cwd(), "public", "uploads", "anexos");
-          await fs.mkdir(uploadDir, { recursive: true });
-          const diskPath = path.join(uploadDir, attachment.nomeArquivo);
-          await fs.writeFile(diskPath, fileBuffer);
-
-          await prisma.attachment.update({
-            where: { id: attachment.id },
-            data: {
-              conteudoBase64: fileBuffer.toString("base64"),
-              caminho: diskPath,
-            },
-          });
-        } catch (saveErr) {
-          console.warn("Aviso ao salvar anexo recuperado do Gmail:", saveErr);
-        }
-      }
-    }
-
     if (!fileBuffer) {
+      await addAuditLog(
+        "ANEXO_DOWNLOAD",
+        "WARN",
+        `Anexo físico não encontrado para ${attachment.nomeOriginal}`,
+        `O anexo ID ${id} existe no banco, mas seu binário não está em cache. Execute a sincronização do Gmail para persistir o arquivo.`,
+        { attachmentId: id, nomeOriginal: attachment.nomeOriginal, nomeArquivo: attachment.nomeArquivo }
+      );
+
       return NextResponse.json(
         {
-          error: "Arquivo não localizado no disco nem no Gmail.",
-          detalhes: `Registro: ${attachment.nomeOriginal}. Tente clicar em 'Verificar e Importar E-mails' para re-sincronizar.`,
+          error: "Arquivo não localizado no cache temporário.",
+          detalhes: `O documento "${attachment.nomeOriginal}" está registrado, mas o arquivo binário precisa ser persistido. Por favor, clique no botão azul "Verificar e Importar E-mails Agora" na aba Financeiro para que o sistema baixe e salve permanentemente este arquivo no banco de dados.`,
         },
         { status: 404 }
       );
@@ -102,7 +90,7 @@ export async function GET(
       },
     });
   } catch (err: any) {
-    console.error("Erro ao servir anexo:", err);
+    await addAuditLog("ANEXO_DOWNLOAD", "ERROR", "Erro ao servir arquivo anexo", err.message, err.stack);
     return NextResponse.json({ error: err.message || "Erro ao carregar arquivo." }, { status: 500 });
   }
 }
