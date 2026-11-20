@@ -166,7 +166,7 @@ export function identificarCategoriaDocumento(texto: string): string | null {
 // Rotina de auto-cura para desmembrar pagamentos que foram agrupados erroneamente sob a Fatura Sicredi
 export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
   try {
-    // 1. Limpeza de registros fantasmas gerados por .txt sem valor monetário (ex: Re__Boleto_Nr__Documento_5428.txt)
+  // 1. Limpeza de registros fantasmas gerados por .txt sem valor monetário (ex: Re__Boleto_Nr__Documento_5428.txt)
     const ghostPayables = await prisma.payable.findMany({
       where: {
         OR: [
