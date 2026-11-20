@@ -620,6 +620,86 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
     }
   };
 
+  // Modal e Ações de Edição e Exclusão de Contas a Receber
+  const [editReceivableModal, setEditReceivableModal] = useState<{
+    open: boolean;
+    item: any;
+    valor: string;
+    descricao: string;
+    cliente: string;
+    vencimento: string;
+    numeroNf: string;
+    saving: boolean;
+  }>({
+    open: false,
+    item: null,
+    valor: "",
+    descricao: "",
+    cliente: "",
+    vencimento: "",
+    numeroNf: "",
+    saving: false,
+  });
+
+  const handleOpenEditReceivable = (item: any) => {
+    setEditReceivableModal({
+      open: true,
+      item,
+      valor: String(item.valorOriginal),
+      descricao: item.descricao,
+      cliente: item.clienteNome,
+      vencimento: item.dataVencimento ? new Date(item.dataVencimento).toISOString().slice(0, 10) : "",
+      numeroNf: item.numeroNf || "",
+      saving: false,
+    });
+  };
+
+  const handleSaveEditReceivable = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editReceivableModal.item) return;
+    setEditReceivableModal((prev) => ({ ...prev, saving: true }));
+    try {
+      const res = await fetch(`/api/financeiro/contas-receber/${editReceivableModal.item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          valorOriginal: Number(editReceivableModal.valor),
+          descricao: editReceivableModal.descricao,
+          clienteNome: editReceivableModal.cliente,
+          dataVencimento: editReceivableModal.vencimento,
+          numeroNf: editReceivableModal.numeroNf || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setFeedbackMsg({ type: "success", text: "Conta a receber atualizada com sucesso!" });
+      setEditReceivableModal((prev) => ({ ...prev, open: false }));
+      loadFinanceiroData();
+    } catch (err: any) {
+      setFeedbackMsg({ type: "error", text: err.message || "Erro ao atualizar conta a receber." });
+    } finally {
+      setEditReceivableModal((prev) => ({ ...prev, saving: false }));
+    }
+  };
+
+  const handleDeleteReceivable = async (id: string, descricao: string) => {
+    if (!window.confirm(`Tem certeza que deseja remover o recebimento "${descricao}"?`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/financeiro/contas-receber/${id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setFeedbackMsg({ type: "success", text: "Recebimento removido com sucesso!" });
+      setReceivables((prev) => prev.filter((r) => r.id !== id));
+      loadFinanceiroData();
+    } catch (err: any) {
+      setFeedbackMsg({ type: "error", text: err.message || "Erro ao excluir recebimento." });
+    }
+  };
+
   const handleAnalyzeWithIA = async () => {
     if (!iaFile) return;
     setAnalyzingIa(true);
@@ -1098,6 +1178,20 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                                 <Eye className="w-3.5 h-3.5" />
                               </a>
                             )}
+                            <button
+                              onClick={() => handleOpenEditReceivable(r)}
+                              title="Editar recebimento"
+                              className="p-1.5 rounded-lg border border-slate-200 hover:border-amber-400 hover:bg-amber-50 text-amber-600 transition-colors cursor-pointer"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteReceivable(r.id, r.descricao)}
+                              title="Excluir recebimento"
+                              className="p-1.5 rounded-lg border border-slate-200 hover:border-red-400 hover:bg-red-50 text-red-600 transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                             {r.status !== "RECEBIDO" && (
                               <button
                                 onClick={() =>
@@ -2720,6 +2814,121 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                   className="px-5 py-2 rounded-xl bg-[#00A6FF] hover:bg-[#0091e0] text-[#06152d] font-bold shadow-sm cursor-pointer flex items-center gap-1.5"
                 >
                   {editPayableModal.saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Salvar Alterações"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Edição de Conta a Receber */}
+      {editReceivableModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-lg p-6 shadow-xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-4 border-b border-border">
+              <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+                <Edit2 className="w-5 h-5 text-emerald-600" />
+                <span>Editar Lançamento de Conta a Receber</span>
+              </h3>
+              <button
+                onClick={() => setEditReceivableModal({ ...editReceivableModal, open: false })}
+                className="text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditReceivable} className="space-y-4 pt-4 text-xs">
+              <div>
+                <label className="block font-semibold text-muted-foreground mb-1">Descrição</label>
+                <input
+                  type="text"
+                  required
+                  value={editReceivableModal.descricao}
+                  onChange={(e) => setEditReceivableModal({ ...editReceivableModal, descricao: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-border bg-background focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-muted-foreground mb-1">Cliente / Tomador</label>
+                <input
+                  type="text"
+                  required
+                  value={editReceivableModal.cliente}
+                  onChange={(e) => setEditReceivableModal({ ...editReceivableModal, cliente: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-border bg-background focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Valor Líquido (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={editReceivableModal.valor}
+                    onChange={(e) => setEditReceivableModal({ ...editReceivableModal, valor: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono font-bold text-emerald-600 focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Data de Vencimento</label>
+                  <input
+                    type="date"
+                    required
+                    value={editReceivableModal.vencimento}
+                    onChange={(e) => setEditReceivableModal({ ...editReceivableModal, vencimento: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-muted-foreground mb-1">Nº NF-e / NFS-e</label>
+                  <input
+                    type="text"
+                    value={editReceivableModal.numeroNf}
+                    onChange={(e) => setEditReceivableModal({ ...editReceivableModal, numeroNf: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background font-mono focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              {editReceivableModal.item?.anexos && editReceivableModal.item.anexos.length > 0 && (
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-border">
+                  <span className="block font-semibold text-muted-foreground mb-1.5">Documentos Anexados:</span>
+                  <div className="flex flex-wrap gap-2">
+                    {editReceivableModal.item.anexos.map((att: any) => (
+                      <a
+                        key={att.id}
+                        href={`/api/financeiro/anexos/${att.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 text-xs font-medium"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>{att.nomeOriginal}</span>
+                        <ExternalLink className="w-3 h-3 opacity-60" />
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setEditReceivableModal({ ...editReceivableModal, open: false })}
+                  className="px-4 py-2 rounded-xl border border-border text-muted-foreground font-semibold hover:bg-slate-100 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={editReceivableModal.saving}
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-sm cursor-pointer flex items-center gap-1.5"
+                >
+                  {editReceivableModal.saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Salvar Alterações"}
                 </button>
               </div>
             </form>

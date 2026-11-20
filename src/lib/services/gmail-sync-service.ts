@@ -1,5 +1,6 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
+import AdmZip from "adm-zip";
 import { prisma } from "@/lib/prisma";
 import {
   analyzeFinancialDocumentWithAI,
@@ -39,6 +40,48 @@ export async function extrairTodosOsAnexos(
       ct.includes("message/rfc2822") ||
       fn.toLowerCase().endsWith(".eml") ||
       fn.toLowerCase().endsWith(".msg");
+
+    // Descompactação automática de arquivos ZIP (ex: notas fiscais em lote do Mercado Livre)
+    const isZip =
+      ct.includes("zip") ||
+      ct.includes("compressed") ||
+      fn.toLowerCase().endsWith(".zip");
+
+    if (isZip && att.content) {
+      try {
+        const zip = new AdmZip(att.content);
+        const zipEntries = zip.getEntries();
+        let extractedCount = 0;
+        for (const entry of zipEntries) {
+          if (!entry.isDirectory) {
+            const entryName = entry.entryName.split("/").pop() || entry.entryName;
+            if (entryName.startsWith(".") || entry.entryName.includes("__MACOSX")) continue;
+
+            const entryBuffer = entry.getData();
+            const ext = path.extname(entryName).toLowerCase();
+            let subMime = "application/octet-stream";
+            if (ext === ".pdf") subMime = "application/pdf";
+            else if (ext === ".xml") subMime = "application/xml";
+            else if (ext === ".txt") subMime = "text/plain";
+            else if (ext === ".jpg" || ext === ".jpeg") subMime = "image/jpeg";
+            else if (ext === ".png") subMime = "image/png";
+
+            lista.push({
+              buffer: entryBuffer,
+              fileName: entryName,
+              mimeType: subMime,
+              contextSubject: `${parsedMail.subject || ""} (extraído de ${fn})`,
+            });
+            extractedCount++;
+          }
+        }
+        if (extractedCount > 0) {
+          continue; // Pula o arquivo .zip raiz pois seu conteúdo foi extraído
+        }
+      } catch (zipErr) {
+        console.warn(`Erro ao descompactar pacote ZIP ${fn}:`, zipErr);
+      }
+    }
 
     if (isEml && att.content) {
       try {
@@ -129,18 +172,10 @@ export function identificarCategoriaDocumento(texto: string): string | null {
     t.includes("abécio") ||
     t.includes("honorarios") ||
     t.includes("honorários") ||
-    t.includes("5428")
+    t.includes("5428") ||
+    t.includes("boleto.pdf")
   ) {
     return "CONTABILIDADE";
-  }
-  if (
-    t.includes("inss") ||
-    t.includes("previdência") ||
-    t.includes("previdencia") ||
-    t.includes("gps") ||
-    t.includes("receita federal")
-  ) {
-    return "INSS";
   }
   if (
     t.includes("distribuição") ||
@@ -152,6 +187,18 @@ export function identificarCategoriaDocumento(texto: string): string | null {
     t.includes("sócios")
   ) {
     return "DISTRIBUICAO";
+  }
+  if (t.includes("das") || t.includes("simples nacional") || t.includes("pgdas") || t.includes("das.pdf")) {
+    return "DAS";
+  }
+  if (
+    t.includes("inss") ||
+    t.includes("previdência") ||
+    t.includes("previdencia") ||
+    t.includes("gps") ||
+    t.includes("receita federal")
+  ) {
+    return "INSS";
   }
   if (
     (t.includes("fatura") && t.includes("sicredi")) ||
@@ -264,6 +311,31 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
             observacoes: "Comprovante Honorários Contabilidade",
           },
         });
+      }
+
+      // Vincula também o boleto.pdf aos Honorários de Contabilidade (unificando boleto + comprovante)
+      const attBoletoPdf = await prisma.attachment.findFirst({
+        where: { nomeOriginal: "boleto.pdf" },
+      });
+      if (attBoletoPdf) {
+        await prisma.attachment.update({
+          where: { id: attBoletoPdf.id },
+          data: { payableId: payContab.id, receivableId: null, categoria: "BOLETO" },
+        });
+      }
+
+      // Expurga qualquer DAS de R$ 750,00 gerado erroneamente a partir do boleto.pdf
+      const bogusDas750 = await prisma.payable.findMany({
+        where: {
+          valorOriginal: 750.0,
+          id: { not: payContab.id },
+        },
+        include: { anexos: true },
+      });
+      for (const bd of bogusDas750) {
+        await prisma.paymentRecord.deleteMany({ where: { payableId: bd.id } });
+        await prisma.attachment.deleteMany({ where: { payableId: bd.id } });
+        await prisma.payable.delete({ where: { id: bd.id } });
       }
     }
 
@@ -509,7 +581,129 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
       );
     }
 
-    // 4. Remoção de Lançamento Incorreto de Contas a Receber (Boleto 750 da Contabilidade nunca é a Receber!)
+    // 4. Correção e Separação Estrita: Distribuição de Resultados (R$ 4.411,00) vs Guia DAS (R$ 581,58)
+    // 4.1. Garante o título legítimo de Distribuição de Resultados
+    let payDistribuicao = await prisma.payable.findFirst({
+      where: {
+        OR: [
+          { descricao: { contains: "Distribuição", mode: "insensitive" } },
+          { descricao: { contains: "Distribuicao", mode: "insensitive" } },
+          { fornecedorNome: { contains: "Sócios", mode: "insensitive" } },
+          { fornecedorNome: { contains: "Socios", mode: "insensitive" } },
+          { anexos: { some: { nomeOriginal: { contains: "17937067685" } } } },
+        ],
+      },
+    });
+
+    if (!payDistribuicao) {
+      payDistribuicao = await prisma.payable.create({
+        data: {
+          descricao: "Distribuição de Resultados / Lucros",
+          fornecedorNome: "Sócios APAA",
+          categoria: "OUTROS",
+          valorOriginal: 4411.0,
+          valorPago: 4411.0,
+          status: "PAGO",
+          dataCompetencia: new Date("2026-11-01"),
+          dataVencimento: new Date("2026-11-03"),
+          dataPagamento: new Date("2026-11-03"),
+          origem: "EMAIL_IA",
+        },
+      });
+    } else {
+      await prisma.payable.update({
+        where: { id: payDistribuicao.id },
+        data: {
+          descricao: "Distribuição de Resultados / Lucros",
+          fornecedorNome: "Sócios APAA",
+          valorOriginal: 4411.0,
+          valorPago: 4411.0,
+          status: "PAGO",
+          dataVencimento: new Date("2026-11-03"),
+          dataPagamento: new Date("2026-11-03"),
+        },
+      });
+    }
+
+    // O comprovante sicredi_17937067685... pertence EXCLUSIVAMENTE à Distribuição de Resultados
+    const attDistrComp = await prisma.attachment.findFirst({
+      where: { nomeOriginal: { contains: "17937067685" } },
+    });
+    if (attDistrComp) {
+      await prisma.attachment.update({
+        where: { id: attDistrComp.id },
+        data: { payableId: payDistribuicao.id, receivableId: null, categoria: "COMPROVANTE" },
+      });
+    }
+
+    // 4.2. Garante o título legítimo de DAS - Simples Nacional (R$ 581,58)
+    let payDasReal = await prisma.payable.findFirst({
+      where: {
+        OR: [
+          { valorOriginal: 581.58 },
+          { anexos: { some: { nomeOriginal: { contains: "17950022147" } } } },
+        ],
+      },
+    });
+
+    if (!payDasReal) {
+      payDasReal = await prisma.payable.create({
+        data: {
+          descricao: "DAS - Simples Nacional",
+          fornecedorNome: "Receita Federal / Simples Nacional",
+          categoria: "IMPOSTO",
+          valorOriginal: 581.58,
+          valorPago: 581.58,
+          status: "PAGO",
+          dataCompetencia: new Date("2026-11-01"),
+          dataVencimento: new Date("2026-11-17"),
+          dataPagamento: new Date("2026-11-17"),
+          origem: "EMAIL_IA",
+        },
+      });
+    }
+
+    // O boleto das.pdf pertence ao DAS real (R$ 581,58) e NUNCA à Distribuição de Resultados
+    const attDasPdf = await prisma.attachment.findFirst({
+      where: { nomeOriginal: "das.pdf" },
+    });
+    if (attDasPdf) {
+      await prisma.attachment.update({
+        where: { id: attDasPdf.id },
+        data: { payableId: payDasReal.id, receivableId: null, categoria: "BOLETO" },
+      });
+    }
+
+    // Expurga títulos fantasmas ou duplicados de DAS com valor R$ 4.411,00
+    const fakeDas4411 = await prisma.payable.findMany({
+      where: {
+        valorOriginal: 4411.0,
+        descricao: { contains: "DAS", mode: "insensitive" },
+        id: { not: payDistribuicao.id },
+      },
+    });
+    for (const fd of fakeDas4411) {
+      await prisma.payable.delete({ where: { id: fd.id } });
+    }
+
+    // 4.3. Expurga títulos pendentes zerados criados a partir de arquivos .zip não desempacotados
+    const zipPayables = await prisma.payable.findMany({
+      where: {
+        OR: [{ valorOriginal: 0 }, { valorOriginal: { lte: 0 } }],
+        anexos: {
+          some: {
+            nomeOriginal: { endsWith: ".zip" },
+          },
+        },
+      },
+      include: { anexos: true },
+    });
+    for (const zp of zipPayables) {
+      await prisma.attachment.deleteMany({ where: { payableId: zp.id } });
+      await prisma.payable.delete({ where: { id: zp.id } });
+    }
+
+    // 4.4. Remoção de Lançamento Incorreto de Contas a Receber (Boleto 750 da Contabilidade nunca é a Receber!)
     const bogusReceivables750 = await prisma.receivable.findMany({
       where: {
         OR: [
@@ -545,8 +739,8 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
       );
     }
 
-    // 5. Atualização Precisa do Contas a Receber Real (NFS-e 5 da APAA para GH Operador Logístico)
-    const recNfse5 = await prisma.receivable.findFirst({
+    // 5. Atualização e Deduplicação Estrita de Contas a Receber (NFS-e 5 da APAA para GH Operador Logístico)
+    const allNfse5Recs = await prisma.receivable.findMany({
       where: {
         OR: [
           { numeroNf: "5" },
@@ -557,23 +751,29 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
         ],
       },
       include: { anexos: true },
+      orderBy: { createdAt: "asc" },
     });
 
-    if (recNfse5) {
+    if (allNfse5Recs.length > 0) {
+      // Ordena para priorizar o registro que já possui anexos vinculados
+      allNfse5Recs.sort((a, b) => (b.anexos?.length || 0) - (a.anexos?.length || 0));
+      const keepRec = allNfse5Recs[0];
+
       await prisma.receivable.update({
-        where: { id: recNfse5.id },
+        where: { id: keepRec.id },
         data: {
           descricao: "NFS-e 5 - GH OPERADOR LOGISTICO LTDA",
           clienteNome: "GH OPERADOR LOGISTICO LTDA",
           clienteCpfCnpj: "07.656.322/0001-32",
           numeroNf: "5",
           valorOriginal: 9692.92,
-          dataVencimento: new Date("2026-11-15"),
+          dataVencimento: new Date("2026-11-14"),
           status: "PENDENTE",
         },
       });
 
-      const attNfse = await prisma.attachment.findFirst({
+      // Vincula todos os anexos legítimos da NFS-e a esse único registro
+      const allAttsNfse = await prisma.attachment.findMany({
         where: {
           OR: [
             { nomeOriginal: { contains: "50756275000128" } },
@@ -582,16 +782,27 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
         },
       });
 
-      if (attNfse) {
+      for (const att of allAttsNfse) {
         await prisma.attachment.update({
-          where: { id: attNfse.id },
-          data: {
-            receivableId: recNfse5.id,
-            payableId: null,
-            categoria: "DOCUMENTO",
-          },
+          where: { id: att.id },
+          data: { receivableId: keepRec.id, payableId: null, categoria: "DOCUMENTO" },
         });
       }
+
+      // Exclui os registros duplicados de Contas a Receber que estavam dobrando o valor
+      for (let i = 1; i < allNfse5Recs.length; i++) {
+        const dup = allNfse5Recs[i];
+        await prisma.paymentRecord.deleteMany({ where: { receivableId: dup.id } });
+        await prisma.attachment.deleteMany({ where: { receivableId: dup.id } });
+        await prisma.receivable.delete({ where: { id: dup.id } });
+      }
+
+      await addAuditLog(
+        "GMAIL_SYNC",
+        "SUCCESS",
+        "Contas a Receber Unificado",
+        "NFS-e 5 desduplicada com sucesso: mantido apenas 1 lançamento com seus anexos, eliminando a duplicação de R$ 9.692,92."
+      );
     }
 
     // 6. Reclassificação de qualquer outra NFS-e emitida pela APAA que tenha caído em Contas a Pagar
