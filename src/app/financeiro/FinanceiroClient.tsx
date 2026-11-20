@@ -460,6 +460,16 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
       const res = await fetch("/api/financeiro/ia/sincronizar-email", {
         method: "POST",
       });
+
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        const text = await res.text();
+        if (res.status === 504 || text.includes("upstream request timeout") || text.includes("Gateway Timeout")) {
+          throw new Error("A requisição demorou mais que o limite do servidor (504). Ajustamos o processo para rodar em lotes rápidos; por favor, clique novamente.");
+        }
+        throw new Error(`Servidor retornou erro (${res.status}): ${text.slice(0, 100)}`);
+      }
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 

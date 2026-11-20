@@ -24,13 +24,14 @@ export async function analyzeFinancialDocumentWithAI(
   fileBuffer: Buffer,
   mimeType: string,
   fileName: string,
-  geminiApiKey?: string
+  geminiApiKey?: string,
+  contextSubject?: string
 ): Promise<AnalyzedDocumentResult> {
   const apiKey = geminiApiKey || process.env.GEMINI_API_KEY;
 
-  // Se não houver chave de API cadastrada, usa um parser heurístico inteligente para XML/Texto/Padrões
+  // Se não houver chave de API cadastrada, usa o parser heurístico inteligente
   if (!apiKey) {
-    return heuristicDocumentParser(fileBuffer, mimeType, fileName);
+    return heuristicDocumentParser(fileBuffer, mimeType, fileName, contextSubject);
   }
 
   try {
@@ -38,6 +39,7 @@ export async function analyzeFinancialDocumentWithAI(
 
     const prompt = `Você é um assistente especialista em auditoria financeira e fiscal brasileiro.
 Analise este documento financeiro (que pode ser um Boleto, Nota Fiscal de Serviço/Produto ou Comprovante de Pagamento).
+Contexto do e-mail/assunto: "${contextSubject || fileName}".
 Identifique e extraia os dados estritamente no formato JSON com os seguintes campos:
 {
   "tipoDocumento": "BOLETO" | "NOTA_FISCAL" | "COMPROVANTE_PAGAMENTO" | "OUTRO",
@@ -56,86 +58,107 @@ Identifique e extraia os dados estritamente no formato JSON com os seguintes cam
 }
 Retorne APENAS o objeto JSON puro, sem crases de markdown.`;
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: prompt },
+    const models = ["gemini-2.0-flash", "gemini-1.5-flash"];
+    let textOutput = "";
+
+    for (const model of models) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [
                 {
-                  inlineData: {
-                    mimeType: mimeType.includes("pdf")
-                      ? "application/pdf"
-                      : mimeType.includes("xml")
-                      ? "text/plain"
-                      : mimeType,
-                    data: base64Data,
-                  },
+                  parts: [
+                    { text: prompt },
+                    {
+                      inlineData: {
+                        mimeType: mimeType.includes("pdf")
+                          ? "application/pdf"
+                          : mimeType.includes("xml")
+                          ? "text/plain"
+                          : mimeType,
+                        data: base64Data,
+                      },
+                    },
+                  ],
                 },
               ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            responseMimeType: "application/json",
-          },
-        }),
+              generationConfig: {
+                temperature: 0.1,
+                responseMimeType: "application/json",
+              },
+            }),
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          textOutput = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+          if (textOutput) break;
+        } else {
+          console.warn(`Tentativa com modelo ${model} retornou status ${response.status}`);
+        }
+      } catch (callErr) {
+        console.warn(`Erro chamando ${model}:`, callErr);
       }
-    );
-
-    if (!response.ok) {
-      console.warn("Falha na chamada ao Gemini API, recorrendo a heurística:", await response.text());
-      return heuristicDocumentParser(fileBuffer, mimeType, fileName);
     }
 
-    const data = await response.json();
-    const textOutput = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!textOutput) {
-      return heuristicDocumentParser(fileBuffer, mimeType, fileName);
+      return heuristicDocumentParser(fileBuffer, mimeType, fileName, contextSubject);
     }
 
-    const parsed: AnalyzedDocumentResult = JSON.parse(textOutput);
+    const cleanJson = textOutput.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
+    const parsed: AnalyzedDocumentResult = JSON.parse(cleanJson);
     return parsed;
   } catch (err) {
-    console.error("Erro na análise via Gemini:", err);
-    return heuristicDocumentParser(fileBuffer, mimeType, fileName);
+    console.error("Erro na análise via Gemini, usando heurística:", err);
+    return heuristicDocumentParser(fileBuffer, mimeType, fileName, contextSubject);
   }
 }
 
 /**
- * Parser de contingência caso a chave da IA não esteja informada ou ocorra timeout
+ * Parser de contingência inteligente para quando a IA não estiver com chave ou para suporte offline
  */
 function heuristicDocumentParser(
   fileBuffer: Buffer,
   mimeType: string,
-  fileName: string
+  fileName: string,
+  contextSubject?: string
 ): AnalyzedDocumentResult {
-  const content = fileBuffer.toString("utf-8");
-  const lowerName = fileName.toLowerCase();
+  const rawUtf8 = fileBuffer.toString("utf-8");
+  const rawLatin1 = fileBuffer.toString("latin1").replace(/[^\x20-\x7E\xA0-\xFF\n\r]/g, " ");
+  const content = `${rawUtf8} ${rawLatin1}`;
+  
+  const searchCorpus = `${fileName} ${contextSubject || ""} ${content}`.toLowerCase();
 
   const isComprovante =
-    lowerName.includes("comprovante") ||
-    lowerName.includes("comp_") ||
-    content.includes("COMPROVANTE DE PAGAMENTO") ||
-    content.includes("Comprovante de Transferência");
+    searchCorpus.includes("comprovante") ||
+    searchCorpus.includes("pagamento") ||
+    searchCorpus.includes("comp_") ||
+    searchCorpus.includes("transferência") ||
+    searchCorpus.includes("distribuicao") ||
+    searchCorpus.includes("distribuição") ||
+    searchCorpus.includes("autenticação bancária") ||
+    searchCorpus.includes("sicredi");
 
   const isBoleto =
-    lowerName.includes("boleto") ||
-    content.includes("Linha Digitável") ||
-    content.includes("Recibo do Pagador") ||
-    content.includes("Cedente");
+    searchCorpus.includes("boleto") ||
+    searchCorpus.includes("linha digitável") ||
+    searchCorpus.includes("recibo do pagador") ||
+    searchCorpus.includes("cedente") ||
+    searchCorpus.includes("beneficiário");
 
   const isNotaFiscal =
-    lowerName.includes("nf") ||
-    lowerName.includes("danfe") ||
-    lowerName.includes("nfs") ||
-    content.includes("<infNFe") ||
-    content.includes("<NFS-e") ||
-    content.includes("Nota Fiscal");
+    searchCorpus.includes("danfe") ||
+    searchCorpus.includes("nfe") ||
+    searchCorpus.includes("nfse") ||
+    searchCorpus.includes("nfs-e") ||
+    searchCorpus.includes("<infnfe") ||
+    searchCorpus.includes("<nfs-e") ||
+    searchCorpus.includes("nota fiscal");
 
   let tipo: "BOLETO" | "NOTA_FISCAL" | "COMPROVANTE_PAGAMENTO" | "OUTRO" = "OUTRO";
   let categoria: "BOLETO" | "DOCUMENTO" | "COMPROVANTE" = "DOCUMENTO";
@@ -151,19 +174,42 @@ function heuristicDocumentParser(
     categoria = "DOCUMENTO";
   }
 
-  // Tenta extrair valor com regex
-  const valorMatch = content.match(/R\$\s?([0-9.]+,\d{2})/i) || content.match(/valorTotal>([0-9.]+)</i);
+  // Extração de valor monetário (R$ XX,XX ou similar)
+  const valorMatches = content.match(/(?:R\$|VALOR|TOTAL|PAGO)?\s*([0-9]{1,3}(?:\.[0-9]{3})*,\d{2})/gi);
   let valor = 0;
-  if (valorMatch) {
-    valor = parseFloat(valorMatch[1].replace(/\./g, "").replace(",", "."));
+  if (valorMatches && valorMatches.length > 0) {
+    for (const vm of valorMatches) {
+      const numStr = vm.replace(/[^0-9,]/g, "").replace(",", ".");
+      const candidate = parseFloat(numStr);
+      if (candidate > 0 && candidate > valor) {
+        valor = candidate;
+      }
+    }
   }
+
+  // Descrição refinada pelo contexto do assunto
+  let desc = contextSubject || fileName;
+  const lowerDesc = desc.toLowerCase();
+  if (lowerDesc.includes("sicredi") && lowerDesc.includes("fatura")) {
+    desc = "Pagamento de Fatura Sicredi";
+  } else if (lowerDesc.includes("inss")) {
+    desc = "Guia da Previdência Social (INSS)";
+  } else if (lowerDesc.includes("contabilidade")) {
+    desc = "Honorários de Contabilidade";
+  } else if (lowerDesc.includes("unimed")) {
+    desc = "Plano de Saúde Unimed";
+  } else if (lowerDesc.includes("distribuicao") || lowerDesc.includes("distribuição")) {
+    desc = "Distribuição de Resultados / Lucros";
+  }
+
+  const todayStr = new Date().toISOString().slice(0, 10);
 
   return {
     tipoDocumento: tipo,
     categoriaAnexo: categoria,
     valor: valor || 0,
-    descricao: `Documento importado: ${fileName}`,
-    dataVencimento: new Date().toISOString().slice(0, 10),
+    descricao: desc,
+    dataVencimento: todayStr,
+    dataPagamento: tipo === "COMPROVANTE_PAGAMENTO" ? todayStr : undefined,
   };
 }
-

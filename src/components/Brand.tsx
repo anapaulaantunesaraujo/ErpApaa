@@ -114,7 +114,7 @@ export interface WordmarkProps {
 export function Wordmark({ className = "", tone = "light" }: WordmarkProps) {
   const isDark = tone === "dark";
   const mainColor = isDark ? "text-white" : "text-[#0B3D91]";
-  const subColor = isDark ? "text-[#F5F7FA]/70" : "text-[#444A50]";
+  const subColor = isDark ? "text-white/90" : "text-[#444A50]";
 
   return (
     <div className={`leading-none select-none ${className}`}>

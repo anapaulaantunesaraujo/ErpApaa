@@ -43,12 +43,12 @@ export default function MainHeader({ user }: { user: SessionUser }) {
                   href={item.href}
                   className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
                     isActive
-                      ? "bg-[#00A6FF] text-[#06152d] shadow-sm font-extrabold"
-                      : "text-slate-100 hover:text-white hover:bg-white/15"
+                      ? "bg-[#00A6FF] text-[#041226] shadow-md font-black"
+                      : "text-white/90 hover:text-white hover:bg-white/20 hover:shadow-sm"
                   }`}
                 >
-                  <Icon className={`w-4 h-4 ${isActive ? "text-[#06152d]" : "text-[#00A6FF]"}`} />
-                  <span>{item.label}</span>
+                  <Icon className={`w-4 h-4 ${isActive ? "text-[#041226]" : "text-[#00C2FF]"}`} />
+                  <span className="tracking-wide">{item.label}</span>
                 </a>
               );
             })}
