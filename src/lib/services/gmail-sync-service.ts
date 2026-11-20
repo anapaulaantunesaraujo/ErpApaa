@@ -475,11 +475,49 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
     await addAuditLog("GMAIL_SYNC", "SUCCESS", "Conexão IMAP Estabelecida", `Conectado com sucesso à conta ${user}`);
 
     const mailboxes = await client.list();
-    const candidateFolders: string[] = [];
+    
+    // Identifica o caminho exato do sub-marcador "Lidos" sob "Financeiro"
+    let lidosFolderPath: string | null = null;
+    for (const mb of mailboxes) {
+      const p = mb.path;
+      const pl = p.toLowerCase();
+      const nl = mb.name.toLowerCase();
+      if (
+        pl === "financeiro/lidos" ||
+        pl.endsWith("/financeiro/lidos") ||
+        (pl.includes("financeiro") && nl === "lidos")
+      ) {
+        lidosFolderPath = mb.path;
+        break;
+      }
+    }
+
+    if (!lidosFolderPath) {
+      const anyLidos = mailboxes.find((mb) => mb.name.toLowerCase() === "lidos");
+      if (anyLidos) {
+        lidosFolderPath = anyLidos.path;
+      } else {
+        try {
+          await client.mailboxCreate("Financeiro/Lidos");
+          lidosFolderPath = "Financeiro/Lidos";
+        } catch {
+          try {
+            await client.mailboxCreate("Lidos");
+            lidosFolderPath = "Lidos";
+          } catch {}
+        }
+      }
+    }
+
+    let candidateFolders: string[] = [];
 
     for (const mb of mailboxes) {
       const p = mb.path.toLowerCase();
       const n = mb.name.toLowerCase();
+
+      // NUNCA incluir a pasta Lidos na varredura de pendências (apenas mensagens a processar)
+      if (p.includes("lidos") || n === "lidos") continue;
+
       if (
         n === "financeiro" ||
         p === "financeiro" ||
@@ -492,17 +530,23 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
 
     for (const mb of mailboxes) {
       const p = mb.path.toLowerCase();
+      const n = mb.name.toLowerCase();
+      if (p.includes("lidos") || n === "lidos") continue;
+
       if (p.includes("salvos") || p.includes("comprovantes")) {
         if (!candidateFolders.includes(mb.path)) candidateFolders.push(mb.path);
       }
     }
 
     const inboxMb = mailboxes.find(
-      (mb) => mb.path.toUpperCase() === "INBOX" || mb.name.toUpperCase() === "INBOX"
+      (mb) => (mb.path.toUpperCase() === "INBOX" || mb.name.toUpperCase() === "INBOX") && !mb.path.toLowerCase().includes("lidos")
     );
     if (inboxMb && !candidateFolders.includes(inboxMb.path)) {
       candidateFolders.push(inboxMb.path);
     }
+
+    // Filtra estritamente para garantir que nenhuma pasta com "lidos" seja escaneada
+    candidateFolders = candidateFolders.filter((cp) => !cp.toLowerCase().includes("lidos"));
 
     if (candidateFolders.length === 0) candidateFolders.push("INBOX");
     result.pastasVerificadas = candidateFolders;
@@ -922,6 +966,39 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
           try {
             await client.messageFlagsAdd({ uid: item.uid }, ["\\Seen"]);
           } catch {}
+
+          // =========================================================================
+          // Transferência do e-mail processado para o sub-marcador "Financeiro/Lidos"
+          // =========================================================================
+          if (lidosFolderPath && folderPath !== lidosFolderPath) {
+            try {
+              await client.messageMove(String(item.uid), lidosFolderPath, { uid: true });
+              await addAuditLog(
+                "GMAIL_SYNC",
+                "SUCCESS",
+                `E-mail Movido para ${lidosFolderPath}`,
+                `Mensagem "${emailSubject}" processada com sucesso e transferida de "${folderPath}" para o sub-marcador "${lidosFolderPath}".`
+              );
+            } catch (moveErr: any) {
+              try {
+                await client.messageCopy(String(item.uid), lidosFolderPath, { uid: true });
+                await client.messageDelete(String(item.uid), { uid: true });
+                await addAuditLog(
+                  "GMAIL_SYNC",
+                  "SUCCESS",
+                  `E-mail Transferido para ${lidosFolderPath}`,
+                  `Mensagem "${emailSubject}" copiada para "${lidosFolderPath}" e removida de "${folderPath}".`
+                );
+              } catch (fallbackErr: any) {
+                await addAuditLog(
+                  "GMAIL_SYNC",
+                  "WARN",
+                  `Aviso ao mover e-mail para ${lidosFolderPath}`,
+                  `Não foi possível transferir a mensagem "${emailSubject}": ${fallbackErr.message || moveErr.message}`
+                );
+              }
+            }
+          }
 
           await prisma.emailSyncLog.create({
             data: {
