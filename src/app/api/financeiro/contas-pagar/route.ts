@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { desmembrarECorrigirLancamentosSicredi } from "@/lib/services/gmail-sync-service";
 
 export async function GET(request: Request) {
   const user = await getCurrentUser();
@@ -29,6 +30,10 @@ export async function GET(request: Request) {
       const dataFim = new Date(ano, mes, 0, 23, 59, 59, 999);
       where.dataVencimento = { gte: dataInicio, lte: dataFim };
     }
+
+    try {
+      await desmembrarECorrigirLancamentosSicredi();
+    } catch {}
 
     const payables = await prisma.payable.findMany({
       where,

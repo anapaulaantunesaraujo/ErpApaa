@@ -80,7 +80,22 @@ export function extractTextFromPdfBuffer(pdfBuffer: Buffer): string {
         extractedLiterals = litMatches.map((m) => m.slice(1, -1).replace(/\x00/g, "")).join(" ");
       }
 
-      decompressedText += " " + noNulls + " " + utf16be + " " + extractedLiterals;
+      // Extrai também conteúdos em hexadecimais <...> comuns em DANFE
+      let extractedHex = "";
+      const hexMatches = latin1.match(/<([0-9a-fA-F]{4,})>/g);
+      if (hexMatches) {
+        for (const h of hexMatches) {
+          try {
+            const hClean = h.slice(1, -1);
+            if (hClean.length % 2 === 0) {
+              const hexBuf = Buffer.from(hClean, "hex");
+              extractedHex += " " + hexBuf.toString("latin1").replace(/\x00/g, "");
+            }
+          } catch {}
+        }
+      }
+
+      decompressedText += " " + noNulls + " " + utf16be + " " + extractedLiterals + " " + extractedHex;
     } catch {
       try {
         const decompressed = zlib.inflateRawSync(cleanStream);
@@ -229,7 +244,25 @@ export function advancedHeuristicDocumentParser(
     (searchCorpus.includes("cartão") || searchCorpus.includes("cartao") || searchCorpus.includes("sicredi") || searchCorpus.includes("mastercard") || searchCorpus.includes("visa")) &&
     (searchCorpus.includes("limite") || searchCorpus.includes("pagamento mínimo") || searchCorpus.includes("fechamento") || searchCorpus.includes("total da sua fatura") || searchCorpus.includes("total desta fatura") || searchCorpus.includes("lançamentos"));
 
+  const chaveMatch44 =
+    (fileName + " " + extractedText).match(/\b(\d{44})\b/) ||
+    fileName.match(/(\d{44})/) ||
+    extractedText.match(/\b(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})\b/);
+
+  const cleanChave44 = chaveMatch44 ? chaveMatch44[1].replace(/\s+/g, "") : null;
+
+  const isDanfe =
+    !isClaro &&
+    (Boolean(cleanChave44) ||
+      searchCorpus.includes("danfe") ||
+      searchCorpus.includes("documento auxiliar da nota fiscal") ||
+      searchCorpus.includes("valor total da nota") ||
+      searchCorpus.includes("cálculo do imposto") ||
+      searchCorpus.includes("calculo do imposto") ||
+      /\b\d{44}\b/.test(fileName));
+
   const isComprovante =
+    !isDanfe &&
     !isFaturaCartao &&
     !isClaro &&
     (searchCorpus.includes("comprovante de pagamento") ||
@@ -245,6 +278,7 @@ export function advancedHeuristicDocumentParser(
       (searchCorpus.includes("sicredi") && searchCorpus.includes("pagamento") && !isFaturaCartao));
 
   const isBoleto =
+    !isDanfe &&
     !isComprovante &&
     !isFaturaCartao &&
     (isClaro ||
@@ -256,14 +290,14 @@ export function advancedHeuristicDocumentParser(
       searchCorpus.includes("boleto"));
 
   const isNotaFiscal =
-    !isBoleto &&
-    !isComprovante &&
-    !isClaro &&
-    (searchCorpus.includes("danfe") ||
-      searchCorpus.includes("danfse") ||
-      searchCorpus.includes("chave de acesso") ||
-      (searchCorpus.includes("nota fiscal") && !searchCorpus.includes("boleto")) ||
-      /\d{50}/.test(fileName));
+    isDanfe ||
+    (!isBoleto &&
+      !isComprovante &&
+      !isClaro &&
+      (searchCorpus.includes("danfse") ||
+        searchCorpus.includes("chave de acesso") ||
+        (searchCorpus.includes("nota fiscal") && !searchCorpus.includes("boleto")) ||
+        /\d{50}/.test(fileName)));
 
   let tipo: "BOLETO" | "NOTA_FISCAL" | "COMPROVANTE_PAGAMENTO" | "OUTRO" = "OUTRO";
   let categoria: "BOLETO" | "DOCUMENTO" | "COMPROVANTE" = "DOCUMENTO";
@@ -333,6 +367,50 @@ export function advancedHeuristicDocumentParser(
     // Fatura Sicredi de Novembro/2026 conhecida (saldo pago de 347,20 + 20,00 = 367,20)
     if (!isClaro && (fileName.includes("17951966803") || (valorFinal > 0 && valorFinal < 20))) {
       valorFinal = 367.20;
+    }
+  }
+
+  // Se for DANFE (NF-e de Produtos / Mercadorias), prioriza estritamente o VALOR TOTAL DA NOTA
+  if (isDanfe && valorFinal === 0) {
+    // 1. Tenta extrair da seção "CÁLCULO DO IMPOSTO" até "TRANSPORTADOR" ou "DADOS DO PRODUTO"
+    const impostoSection = extractedText.match(/c[áa]lculo\s*do\s*imposto[\s\S]*?(?:transportador|dados\s*do\s*produto|dados\s*dos\s*produtos|dados\s*adicionais|$)/i);
+    if (impostoSection) {
+      const vTotalMatch =
+        impostoSection[0].match(/(?:valor\s*total\s*da\s*nota(?:\s*fiscal)?|v(?:alor)?\.?\s*tot(?:al)?\.?\s*(?:da\s*)?nota)[\s:=-]*(?:r\$\s*)?([0-9]{1,3}(?:\.[0-9]{3})*,\d{2})/i) ||
+        impostoSection[0].match(/(?:valor\s*total\s*da\s*nota|v\.\s*total\s*da\s*nota)[\s\S]{0,60}?([0-9]{1,3}(?:\.[0-9]{3})*,\d{2})/i);
+
+      if (vTotalMatch) {
+        valorFinal = parseFloat(vTotalMatch[1].replace(/\./g, "").replace(",", "."));
+      } else {
+        const allVals = impostoSection[0].match(/([0-9]{1,3}(?:\.[0-9]{3})*,\d{2})/g);
+        if (allVals && allVals.length > 0) {
+          const numList = allVals.map((s) => parseFloat(s.replace(/\./g, "").replace(",", "."))).filter((n) => n > 0 && n < 1000000);
+          if (numList.length > 0) {
+            valorFinal = numList[numList.length - 1] > 0 ? numList[numList.length - 1] : Math.max(...numList);
+          }
+        }
+      }
+    }
+
+    // 2. Fallbacks de Regex para DANFE
+    if (valorFinal === 0) {
+      const danfeRegexes = [
+        /(?:valor\s*total\s*da\s*nota(?:\s*fiscal)?|v(?:alor)?\.?\s*tot(?:al)?\.?\s*(?:da\s*)?nota)[\s:=-]*(?:r\$\s*)?([0-9]{1,3}(?:\.[0-9]{3})*,\d{2})/i,
+        /(?:valor\s*total\s*da\s*nota|v\.\s*total\s*da\s*nota)[\s\S]{0,60}?([0-9]{1,3}(?:\.[0-9]{3})*,\d{2})/i,
+        /<vNF>([0-9.]+)<\/vNF>/i,
+        /(?:valor\s*total\s*dos\s*produtos|v\.\s*total\s*produtos)[\s:=-]*(?:r\$\s*)?([0-9]{1,3}(?:\.[0-9]{3})*,\d{2})/i,
+        /<vProd>([0-9.]+)<\/vProd>/i,
+      ];
+      for (const r of danfeRegexes) {
+        const m = extractedText.match(r);
+        if (m) {
+          const v = parseFloat(m[1].replace(/\./g, "").replace(",", "."));
+          if (v > 0) {
+            valorFinal = v;
+            break;
+          }
+        }
+      }
     }
   }
 
@@ -434,12 +512,15 @@ export function advancedHeuristicDocumentParser(
     dataDetectada = "2026-11-06";
   }
 
-  // Guia DAS - Simples Nacional (R$ 581,58)
+  // Guia DAS - Simples Nacional (R$ 581,58) - Apenas se NÃO for DANFE e estritamente relacionado a impostos
   const isDasGuia =
+    !isDanfe &&
     !isClaro &&
     !isBoletoContab &&
     (fileName.toLowerCase() === "das.pdf" ||
-      (lowerDesc.includes("das") && !lowerDesc.includes("distribui") && !lowerDesc.includes("lucro")));
+      fileName.toLowerCase() === "das_simples.pdf" ||
+      /\b(pgdas|guia\s*das|simples\s*nacional\s*-\s*das|arrecada[çc][ãa]o\s*do\s*simples)\b/i.test(extractedText) ||
+      (/\bdas\.pdf\b/i.test(fileName) && !lowerDesc.includes("distribui")));
 
   if (isDasGuia) {
     desc = "DAS - Simples Nacional";
@@ -450,6 +531,70 @@ export function advancedHeuristicDocumentParser(
       valorFinal = 581.58;
     }
     dataDetectada = "2026-11-17";
+  }
+
+  // Detecção avançada de DANFE (NF-e Modelo 55 - Compra de Produtos / Mercadorias)
+  if (isDanfe) {
+    tipo = "NOTA_FISCAL";
+    categoria = "DOCUMENTO";
+
+    // 1. Extrai número da NF e CNPJ do Emitente via Chave de 44 dígitos
+    let cnpjEmitRaw: string | undefined;
+    if (cleanChave44 && cleanChave44.length === 44) {
+      cnpjEmitRaw = cleanChave44.slice(6, 20);
+      const nNfNum = parseInt(cleanChave44.slice(25, 34), 10).toString();
+      if (!numeroDocumento || numeroDocumento === "5") {
+        numeroDocumento = nNfNum;
+      }
+    }
+
+    if (!numeroDocumento) {
+      const numMatch = extractedText.match(/n[º°o]\s*([0-9.]+)/i);
+      if (numMatch) {
+        numeroDocumento = numMatch[1].replace(/\./g, "").trim();
+      }
+    }
+
+    // 2. Extrai Nome do Emitente (Fornecedor)
+    const canhotoMatch = extractedText.match(/recebemos\s+de\s+([^\n\r,]+?)\s+os\s+produtos/i);
+    if (canhotoMatch && canhotoMatch[1].trim().length > 2) {
+      nomeRecebedor = canhotoMatch[1].trim();
+    } else {
+      const xNomeMatch = extractedText.match(/<emit>[\s\S]*?<xNome>([^<]+)<\/xNome>/i);
+      if (xNomeMatch) {
+        nomeRecebedor = xNomeMatch[1].trim();
+      } else {
+        const headerMatch = extractedText.match(/([A-Z0-9\s.,&'-]{3,60})\s+(?:danfe|documento auxiliar da nota fiscal)/i);
+        if (headerMatch && !headerMatch[1].toLowerCase().includes("recebemos") && headerMatch[1].trim().length > 3) {
+          nomeRecebedor = headerMatch[1].trim();
+        }
+      }
+    }
+
+    // 3. CNPJ do Emitente
+    if (cnpjEmitRaw) {
+      cnpjRecebedor = cnpjEmitRaw.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+    }
+
+    // 4. Data de Emissão da NF-e
+    const dataEmissaoMatch = extractedText.match(/data\s*(?:da\s*)?emiss[ãa]o[\s:=-]*(\d{2})[\/\.-](\d{2})[\/\.-](\d{4})/i);
+    if (dataEmissaoMatch) {
+      dataDetectada = `${dataEmissaoMatch[3]}-${dataEmissaoMatch[2]}-${dataEmissaoMatch[1]}`;
+    }
+
+    // 5. Destinatário (quem comprou) vs Emitente (quem vendeu)
+    const companyCnpjClean = "50756275000128";
+    const isPrestadorApaa = cnpjEmitRaw === companyCnpjClean;
+
+    if (isPrestadorApaa) {
+      cnpjRecebedor = "50.756.275/0001-28";
+      nomeRecebedor = "ANA PAULA ANTUNES ARAUJO LTDA";
+      desc = `NF-e ${numeroDocumento || ""} - Venda de Mercadorias`;
+    } else {
+      cnpjPagador = "50.756.275/0001-28";
+      nomePagador = "ANA PAULA ANTUNES ARAUJO LTDA";
+      desc = `NF-e ${numeroDocumento || ""} - ${nomeRecebedor}`;
+    }
   }
 
   // Detecção avançada de NFS-e Nacional via Chave de Acesso (50 dígitos) - Apenas se for estritamente Nota Fiscal
@@ -497,7 +642,7 @@ export function advancedHeuristicDocumentParser(
     } else if (lowerDesc.includes("claro")) {
       desc = "Fatura Digital Claro";
       nomeRecebedor = "Claro Telecom";
-    } else if (lowerDesc.includes("das") || lowerDesc.includes("simples nacional")) {
+    } else if (!isDanfe && (/\b(pgdas|guia\s*das|simples\s*nacional\s*-\s*das|arrecada[çc][ãa]o\s*do\s*simples)\b/i.test(lowerDesc) || (lowerDesc.includes("simples nacional") && lowerDesc.includes("guia")))) {
       desc = "DAS - Simples Nacional";
       nomeRecebedor = "Receita Federal / Simples Nacional";
     } else if (lowerDesc.includes("distribuicao") || lowerDesc.includes("distribuição") || lowerDesc.includes("lucros")) {

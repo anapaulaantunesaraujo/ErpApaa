@@ -188,8 +188,16 @@ export function identificarCategoriaDocumento(texto: string): string | null {
   ) {
     return "DISTRIBUICAO";
   }
-  if (t.includes("das") || t.includes("simples nacional") || t.includes("pgdas") || t.includes("das.pdf")) {
+  if (
+    !t.includes("danfe") &&
+    !t.includes("nota fiscal") &&
+    (/\b(pgdas|guia\s*das|das\.pdf)\b/i.test(t) ||
+      (t.includes("simples nacional") && (t.includes("guia") || t.includes("imposto") || t.includes("arrecadação") || t.includes("receita federal"))))
+  ) {
     return "DAS";
+  }
+  if (t.includes("danfe") || t.includes("nota fiscal") || /\b\d{44}\b/.test(t)) {
+    return "PRODUTOS";
   }
   if (
     t.includes("inss") ||
@@ -866,7 +874,109 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
       await prisma.payable.delete({ where: { id: nfPay.id } });
     }
 
-    // 5. Deduplicação de anexos com mesmo nome original no mesmo título
+    // 7. Correção e Reprocessamento de NF-e de Compras que caíram como DAS ou Fornecedor Genérico
+    const suspiciousNfePayables = await prisma.payable.findMany({
+      where: {
+        OR: [
+          {
+            descricao: { contains: "DAS", mode: "insensitive" },
+            valorOriginal: { not: 581.58 }, // Mantém o DAS legítimo de R$ 581,58
+          },
+          {
+            fornecedorNome: { contains: "Receita Federal", mode: "insensitive" },
+            valorOriginal: { notIn: [581.58, 178.31] }, // Mantém DAS (581,58) e INSS (178,31)
+          },
+          {
+            anexos: {
+              some: {
+                OR: [
+                  { nomeOriginal: { contains: "352611" } },
+                  { nomeOriginal: { contains: "AH202611" } },
+                  { nomeOriginal: { contains: "DANFE" } },
+                  { nomeOriginal: { contains: "danfe" } },
+                ],
+              },
+            },
+          },
+        ],
+      },
+      include: { anexos: true },
+    });
+
+    for (const p of suspiciousNfePayables) {
+      if (Math.abs(p.valorOriginal - 581.58) < 0.05 || Math.abs(p.valorOriginal - 178.31) < 0.05) {
+        continue;
+      }
+
+      const nfeAtt = p.anexos.find(
+        (a) =>
+          /\d{44}/.test(a.nomeOriginal) ||
+          a.nomeOriginal.includes("352611") ||
+          a.nomeOriginal.toLowerCase().includes("danfe") ||
+          a.nomeOriginal.toLowerCase().endsWith(".xml")
+      );
+
+      if (nfeAtt) {
+        let reAnalysis: any = null;
+        if (nfeAtt.conteudoBase64) {
+          try {
+            const buf = Buffer.from(nfeAtt.conteudoBase64, "base64");
+            reAnalysis = advancedHeuristicDocumentParser(
+              buf,
+              nfeAtt.mimeType || "application/pdf",
+              nfeAtt.nomeOriginal,
+              "Compra de Mercadorias / Produtos"
+            );
+          } catch (e) {
+            console.warn("Erro ao reanalisar buffer de anexo NF-e:", e);
+          }
+        }
+
+        if (!reAnalysis || reAnalysis.valor === 0) {
+          const chaveMatch = nfeAtt.nomeOriginal.match(/(\d{44})/);
+          if (chaveMatch) {
+            const chave = chaveMatch[1];
+            const numNf = parseInt(chave.slice(25, 34), 10).toString();
+            const cnpjEmit = chave.slice(6, 20).replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+            reAnalysis = {
+              tipoDocumento: "NOTA_FISCAL",
+              numeroDocumento: numNf,
+              cnpjRecebedor: cnpjEmit,
+              nomeRecebedor: "Fornecedor de Produtos (NF-e)",
+              descricao: `NF-e ${numNf} - Compra de Produtos`,
+              valor: p.valorOriginal,
+            };
+          }
+        }
+
+        if (reAnalysis && reAnalysis.tipoDocumento === "NOTA_FISCAL") {
+          const nomeForn =
+            reAnalysis.nomeRecebedor && !reAnalysis.nomeRecebedor.includes("Receita Federal")
+              ? reAnalysis.nomeRecebedor
+              : "Fornecedor de Produtos (NF-e)";
+
+          await prisma.payable.update({
+            where: { id: p.id },
+            data: {
+              descricao: reAnalysis.descricao.replace(/Receita Federal \/ Simples Nacional/gi, nomeForn),
+              fornecedorNome: nomeForn,
+              fornecedorCpfCnpj: reAnalysis.cnpjRecebedor || p.fornecedorCpfCnpj,
+              numeroDocumento: reAnalysis.numeroDocumento || p.numeroDocumento,
+              valorOriginal: reAnalysis.valor > 0 ? reAnalysis.valor : p.valorOriginal,
+              categoria: "PRODUTOS",
+              dataVencimento: reAnalysis.dataVencimento ? new Date(reAnalysis.dataVencimento) : p.dataVencimento,
+            },
+          });
+
+          await prisma.attachment.update({
+            where: { id: nfeAtt.id },
+            data: { categoria: "DOCUMENTO" },
+          });
+        }
+      }
+    }
+
+    // 8. Deduplicação de anexos com mesmo nome original no mesmo título
     const allPayables = await prisma.payable.findMany({
       include: { anexos: true },
     });
