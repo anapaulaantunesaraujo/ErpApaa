@@ -170,6 +170,8 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
     valor: string;
     data: string;
     forma: string;
+    cardId: string;
+    totalParcelas: number;
   }>({
     open: false,
     tipo: "PAGAR",
@@ -177,6 +179,8 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
     valor: "",
     data: new Date().toISOString().slice(0, 10),
     forma: "PIX",
+    cardId: "",
+    totalParcelas: 1,
   });
 
   // Estado para upload do extrato (3 arquivos)
@@ -410,6 +414,8 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
               dataPagamento: baixaModal.data,
               valorPago: Number(baixaModal.valor),
               formaPagamento: baixaModal.forma,
+              cardId: baixaModal.cardId || (creditCards.length > 0 ? creditCards[0].id : null),
+              totalParcelas: baixaModal.forma === "CARTAO_CREDITO" ? baixaModal.totalParcelas : 1,
             }
           : {
               dataRecebimento: baixaModal.data,
@@ -1047,6 +1053,8 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                                     valor: String(p.valorOriginal - p.valorPago),
                                     data: new Date().toISOString().slice(0, 10),
                                     forma: "PIX",
+                                    cardId: creditCards.length > 0 ? creditCards[0].id : "",
+                                    totalParcelas: 1,
                                   })
                                 }
                                 className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[11px] cursor-pointer"
@@ -1202,6 +1210,8 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                                     valor: String(r.valorOriginal - r.valorRecebido),
                                     data: new Date().toISOString().slice(0, 10),
                                     forma: "PIX",
+                                    cardId: "",
+                                    totalParcelas: 1,
                                   })
                                 }
                                 className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[11px] cursor-pointer"
@@ -2299,18 +2309,80 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
               </div>
 
               <div>
-                <label className="block font-semibold text-muted-foreground mb-1">Forma de Pagamento</label>
+                <label className="block font-semibold text-muted-foreground mb-1">
+                  {baixaModal.tipo === "PAGAR" ? "Forma de Pagamento" : "Forma de Recebimento"}
+                </label>
                 <select
                   value={baixaModal.forma}
-                  onChange={(e) => setBaixaModal({ ...baixaModal, forma: e.target.value })}
+                  onChange={(e) => {
+                    const forma = e.target.value;
+                    setBaixaModal({
+                      ...baixaModal,
+                      forma,
+                      cardId: baixaModal.cardId || (creditCards.length > 0 ? creditCards[0].id : ""),
+                      totalParcelas: baixaModal.totalParcelas || 1,
+                    });
+                  }}
                   className="w-full px-3 py-2 rounded-xl border border-border bg-background focus:ring-2 focus:ring-[#00A6FF] outline-none cursor-pointer"
                 >
                   <option value="PIX">PIX</option>
                   <option value="BOLETO">Boleto Bancário</option>
                   <option value="DEBITO_CONTA">Débito em Conta (Sicredi)</option>
                   <option value="TED">TED / Transferência</option>
+                  {baixaModal.tipo === "PAGAR" && (
+                    <option value="CARTAO_CREDITO">💳 Cartão de Crédito</option>
+                  )}
                 </select>
               </div>
+
+              {baixaModal.tipo === "PAGAR" && baixaModal.forma === "CARTAO_CREDITO" && (
+                <div className="space-y-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-border">
+                  <div>
+                    <label className="block font-semibold text-muted-foreground mb-1">Cartão de Crédito</label>
+                    {creditCards.length > 0 ? (
+                      <select
+                        value={baixaModal.cardId || creditCards[0]?.id}
+                        onChange={(e) => setBaixaModal({ ...baixaModal, cardId: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl border border-border bg-background focus:ring-2 focus:ring-[#00A6FF] outline-none cursor-pointer"
+                      >
+                        {creditCards.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.nome} ({c.bandeira} •••• {c.ultimosDigitos})
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="px-3 py-2 rounded-xl border border-blue-200 bg-blue-50/60 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 text-xs">
+                        Sicredi Mastercard Corporativo (Padrão)
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-muted-foreground mb-1">Número de Parcelas</label>
+                    <select
+                      value={baixaModal.totalParcelas}
+                      onChange={(e) => setBaixaModal({ ...baixaModal, totalParcelas: Number(e.target.value) })}
+                      className="w-full px-3 py-2 rounded-xl border border-border bg-background focus:ring-2 focus:ring-[#00A6FF] outline-none cursor-pointer font-medium"
+                    >
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 18, 24].map((n) => {
+                        const valTotal = Number(baixaModal.valor) || 0;
+                        const valParcela = (valTotal / n).toFixed(2);
+                        return (
+                          <option key={n} value={n}>
+                            {n === 1
+                              ? `1x de R$ ${valTotal.toFixed(2)} (À vista)`
+                              : `${n}x de R$ ${valParcela} (Total: R$ ${valTotal.toFixed(2)})`}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      As {baixaModal.totalParcelas} parcela(s) serão lançadas automaticamente na fatura do cartão correspondente.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               <div className="flex justify-end gap-2 pt-2">
                 <button
