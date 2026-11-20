@@ -49,6 +49,7 @@ export async function PATCH(
     if (body.dataVencimento) updateData.dataVencimento = new Date(body.dataVencimento);
     if (body.dataPagamento) updateData.dataPagamento = new Date(body.dataPagamento);
     if (body.numeroDocumento !== undefined) updateData.numeroDocumento = body.numeroDocumento;
+    if (body.categoria !== undefined) updateData.categoria = body.categoria;
 
     const updated = await prisma.payable.update({
       where: { id },
