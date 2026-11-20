@@ -335,53 +335,95 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
       }
     }
 
-    // Anexo C: Fatura Sicredi (R$ 347,20) - sicredi_1794005206259.pdf
-    const attFatura = await prisma.attachment.findFirst({
+    // Anexo C: Consolidação Completa da Fatura do Cartão Sicredi e seus Múltiplos Pagamentos
+    const faturaSicrediPayables = await prisma.payable.findMany({
       where: {
-        nomeOriginal: { contains: "1794005206259" },
+        OR: [
+          { descricao: { contains: "Fatura Sicredi", mode: "insensitive" } },
+          { fornecedorNome: { contains: "Sicredi Cartões", mode: "insensitive" } },
+        ],
+        dataCompetencia: {
+          gte: new Date("2026-11-01"),
+          lte: new Date("2026-11-30"),
+        },
       },
-      include: { payable: true },
+      include: { anexos: true, baixas: true },
+      orderBy: { createdAt: "asc" },
     });
 
-    if (attFatura) {
-      const payFatura = await prisma.payable.findFirst({
-        where: {
-          descricao: { contains: "Fatura Sicredi", mode: "insensitive" },
+    if (faturaSicrediPayables.length > 0) {
+      const mainPayable = faturaSicrediPayables[0];
+      const allAttachments: any[] = [];
+      for (const p of faturaSicrediPayables) {
+        if (p.anexos) allAttachments.push(...p.anexos);
+      }
+
+      // Re-vincula todos os anexos ao título principal consolidado
+      for (const att of allAttachments) {
+        await prisma.attachment.update({
+          where: { id: att.id },
+          data: { payableId: mainPayable.id },
+        });
+      }
+
+      const totalFaturaCalculado = 367.20; // 347.20 (antecipação) + 20.00 (fechamento)
+
+      await prisma.payable.update({
+        where: { id: mainPayable.id },
+        data: {
+          descricao: "Pagamento de Fatura Sicredi",
+          fornecedorNome: "Sicredi Cartões",
+          categoria: "FATURA_CARTAO",
+          valorOriginal: totalFaturaCalculado,
+          valorPago: totalFaturaCalculado,
+          status: "PAGO",
+          dataVencimento: new Date("2026-11-04"),
+          dataPagamento: new Date("2026-11-18"),
         },
       });
 
-      if (payFatura) {
-        await prisma.payable.update({
-          where: { id: payFatura.id },
-          data: {
-            descricao: "Pagamento de Fatura Sicredi",
-            fornecedorNome: "Sicredi Cartões",
-            valorOriginal: 347.2,
-            valorPago: 347.2,
-            status: "PAGO",
-            dataVencimento: new Date("2026-11-05"),
-            dataPagamento: new Date("2026-11-05"),
-          },
-        });
+      // Recria os registros de baixa individuais com os pagamentos reais
+      await prisma.paymentRecord.deleteMany({
+        where: { payableId: { in: faturaSicrediPayables.map((p) => p.id) } },
+      });
 
-        await prisma.attachment.update({
-          where: { id: attFatura.id },
-          data: { payableId: payFatura.id },
-        });
+      const att347 = allAttachments.find((a) => a.nomeOriginal.includes("17940052062"));
+      await prisma.paymentRecord.create({
+        data: {
+          tipo: "PAGAMENTO",
+          payableId: mainPayable.id,
+          data: new Date("2026-11-04"),
+          valor: 347.2,
+          formaPagamento: "PIX",
+          comprovanteAnexoId: att347?.id || null,
+          observacoes: "Pagamento Fatura Sicredi (Antecipação)",
+        },
+      });
 
-        await prisma.paymentRecord.deleteMany({ where: { payableId: payFatura.id } });
-        await prisma.paymentRecord.create({
-          data: {
-            tipo: "PAGAMENTO",
-            payableId: payFatura.id,
-            data: new Date("2026-11-05"),
-            valor: 347.2,
-            formaPagamento: "PIX",
-            comprovanteAnexoId: attFatura.id,
-            observacoes: "Comprovante Pagamento Fatura Sicredi",
-          },
-        });
+      const att20 = allAttachments.find((a) => a.nomeOriginal.includes("17950861990"));
+      await prisma.paymentRecord.create({
+        data: {
+          tipo: "PAGAMENTO",
+          payableId: mainPayable.id,
+          data: new Date("2026-11-18"),
+          valor: 20.0,
+          formaPagamento: "PIX",
+          comprovanteAnexoId: att20?.id || null,
+          observacoes: "Pagamento Fatura Sicredi (Fechamento)",
+        },
+      });
+
+      // Remove os títulos duplicados/fragmentados
+      for (let i = 1; i < faturaSicrediPayables.length; i++) {
+        await prisma.payable.delete({ where: { id: faturaSicrediPayables[i].id } });
       }
+
+      await addAuditLog(
+        "GMAIL_SYNC",
+        "SUCCESS",
+        "Fatura Sicredi Consolidada",
+        `Fatura e 2 comprovantes (R$ 347,20 + R$ 20,00 = R$ 367,20) consolidados no mesmo lançamento com sucesso.`
+      );
     }
 
     // 4. Reclassificação de NFS-e emitida pela APAA de Contas a Pagar para Contas a Receber
@@ -799,6 +841,7 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
               // Deduplicação & Unificação Inteligente por Categoria e Valor
               // =========================================================================
               let existingPayable: any = null;
+              const catDoc = identificarCategoriaDocumento(`${contextSubject} ${analysis.descricao} ${analysis.nomeRecebedor || ""}`);
 
               // 1. Busca exata por Linha Digitável
               if (analysis.linhaDigitavel && analysis.linhaDigitavel.length >= 20) {
@@ -846,8 +889,15 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
                   for (const cand of candidates) {
                     const candCat = identificarCategoriaDocumento(`${cand.descricao} ${cand.fornecedorNome || ""}`);
                     if (candCat === catDoc) {
-                      // Só agrupa se o título anterior estiver com valor zerado (aguardando valor)
-                      // OU se ambos tiverem o mesmo valor exato (+- 0.50)
+                      // REGRA ESPECIAL PARA FATURA SICREDI:
+                      // No mês de competência, existe apenas UMA fatura do cartão!
+                      // Qualquer comprovante de pagamento ou o PDF da fatura pertencem ao mesmo título!
+                      if (catDoc === "FATURA_SICREDI") {
+                        existingPayable = cand;
+                        break;
+                      }
+
+                      // Só agrupa outros títulos se estiver aguardando valor (<= 0) ou valor igual (+- 0.50)
                       if (cand.valorOriginal <= 0 || (analysis.valor > 0 && Math.abs(cand.valorOriginal - analysis.valor) < 0.5)) {
                         existingPayable = cand;
                         break;
@@ -893,20 +943,10 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
 
                 const isComprovante = analysis.tipoDocumento === "COMPROVANTE_PAGAMENTO";
 
-                await prisma.payable.update({
-                  where: { id: existingPayable.id },
-                  data: {
-                    valorOriginal: valorAtual,
-                    valorPago: isComprovante || existingPayable.status === "PAGO" ? valorAtual : existingPayable.valorPago,
-                    status: isComprovante ? "PAGO" : existingPayable.status,
-                    dataPagamento: isComprovante ? dataPag : existingPayable.dataPagamento,
-                    linhaDigitavel: analysis.linhaDigitavel || existingPayable.linhaDigitavel,
-                  },
-                });
-
-                if (isComprovante) {
+                // Se for Fatura Sicredi e o documento for um comprovante de pagamento adicional
+                if (catDoc === "FATURA_SICREDI" && isComprovante && analysis.valor > 0) {
                   const existingPr = await prisma.paymentRecord.findFirst({
-                    where: { payableId: existingPayable.id },
+                    where: { payableId: existingPayable.id, comprovanteAnexoId: att.id },
                   });
 
                   if (!existingPr) {
@@ -915,22 +955,70 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
                         tipo: "PAGAMENTO",
                         payableId: existingPayable.id,
                         data: dataPag,
-                        valor: valorAtual,
+                        valor: analysis.valor,
                         formaPagamento: "PIX",
                         comprovanteAnexoId: att.id,
-                        observacoes: `Comprovante importado (${contextSubject})`,
+                        observacoes: `Comprovante Fatura Sicredi (${contextSubject})`,
                       },
                     });
                     result.baixasEfetuadas++;
-                  } else {
-                    await prisma.paymentRecord.update({
-                      where: { id: existingPr.id },
-                      data: {
-                        valor: valorAtual,
-                        data: dataPag,
-                        comprovanteAnexoId: att.id,
-                      },
+                  }
+
+                  const allBaixas = await prisma.paymentRecord.findMany({
+                    where: { payableId: existingPayable.id },
+                  });
+                  const totalPago = allBaixas.reduce((sum, b) => sum + b.valor, 0);
+
+                  await prisma.payable.update({
+                    where: { id: existingPayable.id },
+                    data: {
+                      valorPago: totalPago,
+                      valorOriginal: Math.max(existingPayable.valorOriginal, totalPago),
+                      status: "PAGO",
+                      dataPagamento: dataPag,
+                      linhaDigitavel: analysis.linhaDigitavel || existingPayable.linhaDigitavel,
+                    },
+                  });
+                } else {
+                  await prisma.payable.update({
+                    where: { id: existingPayable.id },
+                    data: {
+                      valorOriginal: valorAtual,
+                      valorPago: isComprovante || existingPayable.status === "PAGO" ? valorAtual : existingPayable.valorPago,
+                      status: isComprovante ? "PAGO" : existingPayable.status,
+                      dataPagamento: isComprovante ? dataPag : existingPayable.dataPagamento,
+                      linhaDigitavel: analysis.linhaDigitavel || existingPayable.linhaDigitavel,
+                    },
+                  });
+
+                  if (isComprovante) {
+                    const existingPr = await prisma.paymentRecord.findFirst({
+                      where: { payableId: existingPayable.id },
                     });
+
+                    if (!existingPr) {
+                      await prisma.paymentRecord.create({
+                        data: {
+                          tipo: "PAGAMENTO",
+                          payableId: existingPayable.id,
+                          data: dataPag,
+                          valor: valorAtual,
+                          formaPagamento: "PIX",
+                          comprovanteAnexoId: att.id,
+                          observacoes: `Comprovante importado (${contextSubject})`,
+                        },
+                      });
+                      result.baixasEfetuadas++;
+                    } else {
+                      await prisma.paymentRecord.update({
+                        where: { id: existingPr.id },
+                        data: {
+                          valor: valorAtual,
+                          data: dataPag,
+                          comprovanteAnexoId: att.id,
+                        },
+                      });
+                    }
                   }
                 }
 
