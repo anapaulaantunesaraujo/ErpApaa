@@ -72,12 +72,36 @@ export async function DELETE(
 
   const { id } = await params;
   try {
+    // 1. Desvincular transações bancárias conciliadas com este título
+    await prisma.bankTransaction.updateMany({
+      where: { payableId: id },
+      data: { payableId: null, conciliado: false },
+    });
+
+    // 2. Desvincular fatura de cartão de crédito associada
+    await prisma.cardInvoice.updateMany({
+      where: { payableId: id },
+      data: { payableId: null },
+    });
+
+    // 3. Remover registros de baixas/pagamentos
+    await prisma.paymentRecord.deleteMany({
+      where: { payableId: id },
+    });
+
+    // 4. Remover anexos/documentos vinculados
+    await prisma.attachment.deleteMany({
+      where: { payableId: id },
+    });
+
+    // 5. Excluir o lançamento de conta a pagar
     await prisma.payable.delete({
       where: { id },
     });
 
     return NextResponse.json({ success: true, message: "Conta a pagar removida com sucesso." });
   } catch (error: any) {
+    console.error(`[DELETE_PAYABLE] Erro ao excluir título ${id}:`, error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

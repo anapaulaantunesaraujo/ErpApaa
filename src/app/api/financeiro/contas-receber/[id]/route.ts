@@ -71,20 +71,30 @@ export async function DELETE(
 
   const { id } = await params;
   try {
+    // 1. Desvincular transações bancárias conciliadas com este título
+    await prisma.bankTransaction.updateMany({
+      where: { receivableId: id },
+      data: { receivableId: null, conciliado: false },
+    });
+
+    // 2. Remover registros de baixas/recebimentos
     await prisma.paymentRecord.deleteMany({
       where: { receivableId: id },
     });
 
+    // 3. Remover anexos/documentos vinculados
     await prisma.attachment.deleteMany({
       where: { receivableId: id },
     });
 
+    // 4. Excluir o lançamento de conta a receber
     await prisma.receivable.delete({
       where: { id },
     });
 
     return NextResponse.json({ success: true, message: "Conta a receber removida com sucesso." });
   } catch (error: any) {
+    console.error(`[DELETE_RECEIVABLE] Erro ao excluir título ${id}:`, error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
