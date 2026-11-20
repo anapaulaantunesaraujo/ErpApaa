@@ -891,7 +891,7 @@ export default function NfseClient({ user }: { user: SessionUser }) {
                     </tr>
                   ) : (
                     servicos.map((s) => (
-                      <tr key={s.id} className="hover:bg-slate-50:bg-slate-900/30">
+                      <tr key={s.id} className="hover:bg-slate-50 transition-colors">
                         <td className="py-3 px-4 font-mono font-bold text-[#0B3D91]">{s.codigo || "-"}</td>
                         <td className="py-3 px-4 font-semibold text-foreground">{s.descricao}</td>
                         <td className="py-3 px-4 font-mono">{s.cnae}</td>

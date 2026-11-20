@@ -1112,18 +1112,18 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
 
             <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-xs">
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
+                <table className="w-full text-left text-xs min-w-[1000px]">
                   <thead className="bg-slate-100 border-b border-border text-slate-700 uppercase tracking-wider font-bold">
                     <tr>
-                      <th className="py-3 px-4">Vencimento</th>
-                      <th className="py-3 px-4">Fornecedor</th>
-                      <th className="py-3 px-4">Descrição</th>
-                      <th className="py-3 px-4">Categoria</th>
-                      <th className="py-3 px-4">Documento</th>
-                      <th className="py-3 px-4 text-right">Valor</th>
-                      <th className="py-3 px-4 text-center">Status</th>
-                      <th className="py-3 px-4 text-center">Conciliado</th>
-                      <th className="py-3 px-4 text-right">Ações</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">Vencimento</th>
+                      <th className="py-2.5 px-3">Fornecedor</th>
+                      <th className="py-2.5 px-3">Descrição</th>
+                      <th className="py-2.5 px-3">Categoria</th>
+                      <th className="py-2.5 px-3">Documento</th>
+                      <th className="py-2.5 px-3 text-right whitespace-nowrap">Valor</th>
+                      <th className="py-2.5 px-2 text-center whitespace-nowrap">Status</th>
+                      <th className="py-2.5 px-2 text-center whitespace-nowrap">Conciliado</th>
+                      <th className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 bg-slate-100 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -1140,25 +1140,32 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                         const catNome = formatCategoriaNome(p.categoria);
                         const catCor = categories.find((c) => c.nome === catNome)?.cor || "#0B3D91";
                         return (
-                          <tr key={p.id} className="hover:bg-slate-50/50:bg-slate-900/30">
-                            <td className="py-3 px-4 font-mono">
+                          <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="py-2.5 px-3 font-mono whitespace-nowrap">
                               {new Date(p.dataVencimento).toLocaleDateString("pt-BR")}
                             </td>
-                            <td className="py-3 px-4 font-semibold text-foreground">{p.fornecedorNome}</td>
-                            <td className="py-3 px-4 text-muted-foreground">{p.descricao}</td>
-                            <td className="py-3 px-4 whitespace-nowrap">
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10.5px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                            <td className="py-2.5 px-3 font-semibold text-foreground max-w-[160px] truncate" title={p.fornecedorNome}>
+                              {p.fornecedorNome}
+                            </td>
+                            <td className="py-2.5 px-3 text-muted-foreground max-w-[180px] truncate" title={p.descricao}>
+                              {p.descricao}
+                            </td>
+                            <td className="py-2.5 px-3 whitespace-nowrap">
+                              <span
+                                title={catNome}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10.5px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 max-w-[170px]"
+                              >
                                 <span
                                   className="w-2 h-2 rounded-full shrink-0"
                                   style={{ backgroundColor: catCor }}
                                 />
-                                {catNome}
+                                <span className="truncate">{catNome}</span>
                               </span>
                             </td>
-                            <td className="py-3 px-4">
+                            <td className="py-2.5 px-3 max-w-[160px]">
                               <div className="flex flex-col gap-1">
                                 {p.numeroDocumento && (
-                                  <span className="font-mono text-slate-700 font-semibold">{p.numeroDocumento}</span>
+                                  <span className="font-mono text-slate-700 font-semibold truncate">{p.numeroDocumento}</span>
                                 )}
                                 {p.anexos && p.anexos.length > 0 ? (
                                   <div className="flex flex-wrap gap-1">
@@ -1169,7 +1176,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         title={`Abrir/Visualizar: ${att.nomeOriginal}`}
-                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700:bg-blue-900 border border-blue-200 text-[10px] font-medium transition-colors"
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-medium transition-colors"
                                       >
                                         <FileText className="w-3 h-3 text-[#00A6FF]" />
                                         <span className="truncate max-w-[110px]">{att.nomeOriginal}</span>
@@ -1182,10 +1189,10 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                                 )}
                               </div>
                             </td>
-                            <td className="py-3 px-4 text-right font-sans font-bold tabular-nums text-red-600">
+                            <td className="py-2.5 px-3 text-right font-sans font-bold tabular-nums text-red-600 whitespace-nowrap">
                               R$ {p.valorOriginal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                             </td>
-                            <td className="py-3 px-4 text-center">
+                            <td className="py-2.5 px-2 text-center whitespace-nowrap">
                               <span
                                 className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                   p.status === "PAGO"
@@ -1198,15 +1205,15 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                                 {p.status}
                               </span>
                             </td>
-                            <td className="py-3 px-4 text-center">
+                            <td className="py-2.5 px-2 text-center whitespace-nowrap">
                               {p.conciliado ? (
                                 <span className="text-emerald-600 font-bold">Sim</span>
                               ) : (
                                 <span className="text-slate-400">Não</span>
                               )}
                             </td>
-                            <td className="py-3 px-4 text-right">
-                              <div className="flex items-center justify-end gap-1.5">
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 bg-card z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
+                              <div className="flex items-center justify-center gap-1.5">
                                 {p.anexos && p.anexos.length > 0 && (
                                   <a
                                     href={`/api/financeiro/anexos/${p.anexos[0].id}`}
@@ -1227,7 +1234,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                                 </button>
                                 <button
                                   onClick={() => handleDeletePayable(p.id, p.descricao)}
-                                  title="Excluir lançamento duplicado"
+                                  title="Excluir lançamento"
                                   className="p-1.5 rounded-lg border border-slate-200 hover:border-red-400 hover:bg-red-50 text-red-600 transition-colors cursor-pointer"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
@@ -1283,18 +1290,18 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
 
           <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-xs min-w-[950px]">
                 <thead className="bg-slate-100 border-b border-border text-slate-700 uppercase tracking-wider font-bold">
                   <tr>
-                    <th className="py-3 px-4">Vencimento</th>
-                    <th className="py-3 px-4">Cliente / Tomador</th>
-                    <th className="py-3 px-4">Descrição</th>
-                    <th className="py-3 px-4">Documento</th>
-                    <th className="py-3 px-4">Nº NF-e / NFS-e</th>
-                    <th className="py-3 px-4 text-right">Valor Líquido</th>
-                    <th className="py-3 px-4 text-center">Status</th>
-                    <th className="py-3 px-4 text-center">Conciliado</th>
-                    <th className="py-3 px-4 text-right">Ações</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">Vencimento</th>
+                    <th className="py-2.5 px-3">Cliente / Tomador</th>
+                    <th className="py-2.5 px-3">Descrição</th>
+                    <th className="py-2.5 px-3">Documento</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">Nº NF-e / NFS-e</th>
+                    <th className="py-2.5 px-3 text-right whitespace-nowrap">Valor Líquido</th>
+                    <th className="py-2.5 px-2 text-center whitespace-nowrap">Status</th>
+                    <th className="py-2.5 px-2 text-center whitespace-nowrap">Conciliado</th>
+                    <th className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 bg-slate-100 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -1306,13 +1313,13 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                     </tr>
                   ) : (
                     receivables.map((r) => (
-                      <tr key={r.id} className="hover:bg-slate-50/50:bg-slate-900/30">
-                        <td className="py-3 px-4 font-mono">
+                      <tr key={r.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="py-2.5 px-3 font-mono whitespace-nowrap">
                           {new Date(r.dataVencimento).toLocaleDateString("pt-BR")}
                         </td>
-                        <td className="py-3 px-4 font-semibold text-foreground">{r.clienteNome}</td>
-                        <td className="py-3 px-4 text-muted-foreground">{r.descricao}</td>
-                        <td className="py-3 px-4">
+                        <td className="py-2.5 px-3 font-semibold text-foreground max-w-[160px] truncate" title={r.clienteNome}>{r.clienteNome}</td>
+                        <td className="py-2.5 px-3 text-muted-foreground max-w-[180px] truncate" title={r.descricao}>{r.descricao}</td>
+                        <td className="py-2.5 px-3 max-w-[160px]">
                           <div className="flex flex-col gap-1">
                             {r.anexos && r.anexos.length > 0 ? (
                               <div className="flex flex-wrap gap-1">
@@ -1323,7 +1330,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     title={`Abrir/Visualizar: ${att.nomeOriginal}`}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700:bg-emerald-900 border border-emerald-200 text-[10px] font-medium transition-colors"
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-medium transition-colors"
                                   >
                                     <FileText className="w-3 h-3 text-emerald-600" />
                                     <span className="truncate max-w-[120px]">{att.nomeOriginal}</span>
@@ -1336,17 +1343,17 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                             )}
                           </div>
                         </td>
-                        <td className="py-3 px-4 font-mono">
+                        <td className="py-2.5 px-3 font-mono whitespace-nowrap">
                           {r.numeroNf ? (
                             <span className="font-bold text-[#0B3D91]">{r.numeroNf}</span>
                           ) : (
                             "-"
                           )}
                         </td>
-                        <td className="py-3 px-4 text-right font-sans font-bold tabular-nums text-emerald-600">
+                        <td className="py-2.5 px-3 text-right font-sans font-bold tabular-nums text-emerald-600 whitespace-nowrap">
                           R$ {r.valorOriginal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                         </td>
-                        <td className="py-3 px-4 text-center">
+                        <td className="py-2.5 px-2 text-center whitespace-nowrap">
                           <span
                             className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                               r.status === "RECEBIDO"
@@ -1357,15 +1364,15 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                             {r.status}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-center">
+                        <td className="py-2.5 px-2 text-center whitespace-nowrap">
                           {r.conciliado ? (
                             <span className="text-emerald-600 font-bold">Sim</span>
                           ) : (
                             <span className="text-slate-400">Não</span>
                           )}
                         </td>
-                        <td className="py-3 px-4 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
+                        <td className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 bg-card z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
+                          <div className="flex items-center justify-center gap-1.5">
                             {r.anexos && r.anexos.length > 0 && (
                               <a
                                 href={`/api/financeiro/anexos/${r.anexos[0].id}`}
@@ -1584,7 +1591,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                     </tr>
                   ) : (
                     cardExpenses.map((exp) => (
-                      <tr key={exp.id} className="hover:bg-slate-50/50:bg-slate-900/30">
+                      <tr key={exp.id} className="hover:bg-slate-50 transition-colors">
                         <td className="py-3 px-4 font-mono">
                           {new Date(exp.dataCompra).toLocaleDateString("pt-BR")}
                         </td>
