@@ -1010,6 +1010,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                     <th className="py-3 px-4">Vencimento</th>
                     <th className="py-3 px-4">Cliente / Tomador</th>
                     <th className="py-3 px-4">Descrição</th>
+                    <th className="py-3 px-4">Documento</th>
                     <th className="py-3 px-4">Nº NF-e / NFS-e</th>
                     <th className="py-3 px-4 text-right">Valor Líquido</th>
                     <th className="py-3 px-4 text-center">Status</th>
@@ -1020,7 +1021,7 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                 <tbody className="divide-y divide-border">
                   {receivables.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="py-8 text-center text-muted-foreground">
+                      <td colSpan={9} className="py-8 text-center text-muted-foreground">
                         Nenhum registro de conta a receber para o período selecionado.
                       </td>
                     </tr>
@@ -1032,6 +1033,30 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                         </td>
                         <td className="py-3 px-4 font-semibold text-foreground">{r.clienteNome}</td>
                         <td className="py-3 px-4 text-muted-foreground">{r.descricao}</td>
+                        <td className="py-3 px-4">
+                          <div className="flex flex-col gap-1">
+                            {r.anexos && r.anexos.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {r.anexos.map((att: any) => (
+                                  <a
+                                    key={att.id}
+                                    href={`/api/financeiro/anexos/${att.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title={`Abrir/Visualizar: ${att.nomeOriginal}`}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 dark:hover:bg-emerald-900 border border-emerald-200 dark:border-emerald-800 text-[10px] font-medium transition-colors"
+                                  >
+                                    <FileText className="w-3 h-3 text-emerald-600" />
+                                    <span className="truncate max-w-[120px]">{att.nomeOriginal}</span>
+                                    <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                                  </a>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 font-mono">-</span>
+                            )}
+                          </div>
+                        </td>
                         <td className="py-3 px-4 font-mono">
                           {r.numeroNf ? (
                             <span className="font-bold text-[#0B3D91]">{r.numeroNf}</span>
@@ -1061,23 +1086,36 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
                           )}
                         </td>
                         <td className="py-3 px-4 text-right">
-                          {r.status !== "RECEBIDO" && (
-                            <button
-                              onClick={() =>
-                                setBaixaModal({
-                                  open: true,
-                                  tipo: "RECEBER",
-                                  item: r,
-                                  valor: String(r.valorOriginal - r.valorRecebido),
-                                  data: new Date().toISOString().slice(0, 10),
-                                  forma: "PIX",
-                                })
-                              }
-                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[11px] cursor-pointer"
-                            >
-                              Dar Baixa
-                            </button>
-                          )}
+                          <div className="flex items-center justify-end gap-1.5">
+                            {r.anexos && r.anexos.length > 0 && (
+                              <a
+                                href={`/api/financeiro/anexos/${r.anexos[0].id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Visualizar documento anexo"
+                                className="p-1.5 rounded-lg border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50 text-emerald-600 transition-colors"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+                            {r.status !== "RECEBIDO" && (
+                              <button
+                                onClick={() =>
+                                  setBaixaModal({
+                                    open: true,
+                                    tipo: "RECEBER",
+                                    item: r,
+                                    valor: String(r.valorOriginal - r.valorRecebido),
+                                    data: new Date().toISOString().slice(0, 10),
+                                    forma: "PIX",
+                                  })
+                                }
+                                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[11px] cursor-pointer"
+                              >
+                                Dar Baixa
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))

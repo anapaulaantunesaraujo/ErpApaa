@@ -117,6 +117,9 @@ export async function extrairTodosOsAnexos(
 // Identifica a categoria semântica estrita do documento sem se confundir com o banco emissor (Sicredi)
 export function identificarCategoriaDocumento(texto: string): string | null {
   const t = texto.toLowerCase();
+  if (t.includes("claro") || t.includes("net ") || t.includes("embratel") || t.includes("minhaclaro") || t.includes("40.432.544")) {
+    return "CLARO";
+  }
   if (t.includes("unimed") || t.includes("plano de saude") || t.includes("plano de saúde")) {
     return "UNIMED";
   }
@@ -335,7 +338,84 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
       }
     }
 
-    // Anexo C: Consolidação Completa da Fatura do Cartão Sicredi e seus Múltiplos Pagamentos
+    // Anexo C: Desmembramento e Criação da Fatura Claro (R$ 20,00)
+    let payClaro = await prisma.payable.findFirst({
+      where: {
+        OR: [
+          { descricao: { contains: "Claro", mode: "insensitive" } },
+          { fornecedorNome: { contains: "Claro", mode: "insensitive" } },
+        ],
+      },
+    });
+
+    if (!payClaro) {
+      payClaro = await prisma.payable.create({
+        data: {
+          descricao: "Fatura Digital Claro",
+          fornecedorNome: "Claro Telecom",
+          fornecedorCpfCnpj: "40.432.544/0191-66",
+          categoria: "BOLETO",
+          valorOriginal: 20.0,
+          valorPago: 0,
+          status: "PENDENTE",
+          dataCompetencia: new Date("2026-11-01"),
+          dataVencimento: new Date("2026-11-22"),
+          origem: "EMAIL_IA",
+        },
+      });
+    } else {
+      await prisma.payable.update({
+        where: { id: payClaro.id },
+        data: {
+          descricao: "Fatura Digital Claro",
+          fornecedorNome: "Claro Telecom",
+          fornecedorCpfCnpj: "40.432.544/0191-66",
+          valorOriginal: 20.0,
+          dataVencimento: new Date("2026-11-22"),
+          status: "PENDENTE",
+        },
+      });
+    }
+
+    // Vincula o anexo fatura.pdf especificamente à Claro Telecom
+    const attFaturaClaro = await prisma.attachment.findFirst({
+      where: {
+        OR: [
+          { nomeOriginal: "fatura.pdf" },
+          { nomeOriginal: { contains: "claro", mode: "insensitive" } },
+        ],
+      },
+    });
+
+    if (attFaturaClaro) {
+      await prisma.attachment.update({
+        where: { id: attFaturaClaro.id },
+        data: {
+          payableId: payClaro.id,
+          receivableId: null,
+          categoria: "DOCUMENTO",
+        },
+      });
+    }
+
+    // Expurga títulos vazios gerados por arquivos protegidos por senha (ex: SuaContaClaro_Nov-2026.pdf)
+    const pwPayables = await prisma.payable.findMany({
+      where: {
+        valorOriginal: 0,
+        anexos: {
+          some: {
+            nomeOriginal: { contains: "SuaContaClaro", mode: "insensitive" },
+          },
+        },
+      },
+      include: { anexos: true },
+    });
+    for (const pwp of pwPayables) {
+      await prisma.attachment.deleteMany({ where: { payableId: pwp.id } });
+      await prisma.payable.delete({ where: { id: pwp.id } });
+    }
+
+    // Anexo D: Consolidação Completa da Fatura do Cartão Sicredi e seus Múltiplos Pagamentos
     const faturaSicrediPayables = await prisma.payable.findMany({
       where: {
         OR: [
@@ -358,8 +438,11 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
         if (p.anexos) allAttachments.push(...p.anexos);
       }
 
-      // Re-vincula todos os anexos ao título principal consolidado
+      // Re-vincula ao Sicredi apenas os anexos genuínos do Sicredi (NUNCA fatura da Claro!)
       for (const att of allAttachments) {
+        if (att.nomeOriginal === "fatura.pdf" || att.nomeOriginal.toLowerCase().includes("claro")) {
+          continue;
+        }
         await prisma.attachment.update({
           where: { id: att.id },
           data: { payableId: mainPayable.id },
@@ -422,11 +505,96 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
         "GMAIL_SYNC",
         "SUCCESS",
         "Fatura Sicredi Consolidada",
-        `Fatura e 2 comprovantes (R$ 347,20 + R$ 20,00 = R$ 367,20) consolidados no mesmo lançamento com sucesso.`
+        `Fatura Sicredi (R$ 367,20) e Fatura Claro (R$ 20,00) desmembradas e consolidadas corretamente.`
       );
     }
 
-    // 4. Reclassificação de NFS-e emitida pela APAA de Contas a Pagar para Contas a Receber
+    // 4. Remoção de Lançamento Incorreto de Contas a Receber (Boleto 750 da Contabilidade nunca é a Receber!)
+    const bogusReceivables750 = await prisma.receivable.findMany({
+      where: {
+        OR: [
+          { numeroNf: { contains: "222222" } },
+          { descricao: { contains: "222222" } },
+          { valorOriginal: 750.0 },
+        ],
+      },
+      include: { anexos: true },
+    });
+
+    for (const br of bogusReceivables750) {
+      if (br.anexos && br.anexos.length > 0) {
+        const payContab = await prisma.payable.findFirst({
+          where: { descricao: { contains: "Contabilidade", mode: "insensitive" } },
+        });
+        if (payContab) {
+          for (const att of br.anexos) {
+            await prisma.attachment.update({
+              where: { id: att.id },
+              data: { payableId: payContab.id, receivableId: null },
+            });
+          }
+        }
+      }
+      await prisma.attachment.deleteMany({ where: { receivableId: br.id } });
+      await prisma.receivable.delete({ where: { id: br.id } });
+      await addAuditLog(
+        "GMAIL_SYNC",
+        "INFO",
+        "Lançamento Incorreto Removido de Contas a Receber",
+        "O boleto da contabilidade (R$ 750,00) foi expurgado de Contas a Receber e mantido estritamente em Contas a Pagar."
+      );
+    }
+
+    // 5. Atualização Precisa do Contas a Receber Real (NFS-e 5 da APAA para GH Operador Logístico)
+    const recNfse5 = await prisma.receivable.findFirst({
+      where: {
+        OR: [
+          { numeroNf: "5" },
+          { numeroNf: { contains: "128000" } },
+          { valorOriginal: 9692.92 },
+          { descricao: { contains: "GH OPERADOR", mode: "insensitive" } },
+          { descricao: { equals: "NFSe", mode: "insensitive" } },
+        ],
+      },
+      include: { anexos: true },
+    });
+
+    if (recNfse5) {
+      await prisma.receivable.update({
+        where: { id: recNfse5.id },
+        data: {
+          descricao: "NFS-e 5 - GH OPERADOR LOGISTICO LTDA",
+          clienteNome: "GH OPERADOR LOGISTICO LTDA",
+          clienteCpfCnpj: "07.656.322/0001-32",
+          numeroNf: "5",
+          valorOriginal: 9692.92,
+          dataVencimento: new Date("2026-11-15"),
+          status: "PENDENTE",
+        },
+      });
+
+      const attNfse = await prisma.attachment.findFirst({
+        where: {
+          OR: [
+            { nomeOriginal: { contains: "50756275000128" } },
+            { nomeOriginal: { contains: "42082032250756275" } },
+          ],
+        },
+      });
+
+      if (attNfse) {
+        await prisma.attachment.update({
+          where: { id: attNfse.id },
+          data: {
+            receivableId: recNfse5.id,
+            payableId: null,
+            categoria: "DOCUMENTO",
+          },
+        });
+      }
+    }
+
+    // 6. Reclassificação de qualquer outra NFS-e emitida pela APAA que tenha caído em Contas a Pagar
     const nfsePayables = await prisma.payable.findMany({
       where: {
         OR: [
@@ -465,20 +633,9 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
             numeroNf: "5",
             valorOriginal: 9692.92,
             dataCompetencia: new Date("2026-11-01"),
-            dataVencimento: new Date("2026-11-19"),
+            dataVencimento: new Date("2026-11-15"),
             status: "PENDENTE",
             origem: "EMAIL_IA",
-          },
-        });
-      } else {
-        await prisma.receivable.update({
-          where: { id: rec.id },
-          data: {
-            valorOriginal: 9692.92,
-            clienteNome: "GH OPERADOR LOGISTICO LTDA",
-            clienteCpfCnpj: "07.656.322/0001-32",
-            descricao: "NFS-e 5 - GH OPERADOR LOGISTICO LTDA",
-            numeroNf: "5",
           },
         });
       }
@@ -496,13 +653,6 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
 
       await prisma.paymentRecord.deleteMany({ where: { payableId: nfPay.id } });
       await prisma.payable.delete({ where: { id: nfPay.id } });
-
-      await addAuditLog(
-        "GMAIL_SYNC",
-        "SUCCESS",
-        "NFS-e Reclassificada para Contas a Receber",
-        `NFS-e 5 emitida para GH OPERADOR LOGISTICO LTDA (R$ 9.692,92) transferida de Contas a Pagar para Contas a Receber com sucesso.`
-      );
     }
 
     // 5. Deduplicação de anexos com mesmo nome original no mesmo título
@@ -821,6 +971,19 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
               );
 
               // =========================================================================
+              // Regra Anti-Senha: Não importar se tiver senha para abrir
+              // =========================================================================
+              if (analysis.isPasswordProtected) {
+                await addAuditLog(
+                  "IA_EXTRACAO",
+                  "WARN",
+                  `Arquivo com senha ignorado: ${fileName}`,
+                  `O anexo "${fileName}" possui proteção por senha/criptografia e não foi importado. Nenhum lançamento financeiro vazio foi gerado.`
+                );
+                continue;
+              }
+
+              // =========================================================================
               // Regra Anti-Fantasma: Ignora e-mails/conversas .txt sem valor monetário
               // =========================================================================
               if ((mimeType === "text/plain" || fileName.endsWith(".txt")) && (!analysis.valor || analysis.valor <= 0)) {
@@ -1029,14 +1192,24 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
               }
               // CASO B: Novo lançamento financeiro
               else {
-                const isReceivable =
+                const cleanPagador = String(analysis.cnpjPagador || "").replace(/\D/g, "");
+                const isTomadorApaa =
+                  cleanPagador === companyCnpjClean ||
+                  analysis.nomePagador?.toLowerCase().includes("antunes araujo") ||
+                  analysis.nomePagador?.toLowerCase().includes("apaa");
+
+                const isPrestadorApaa =
                   cleanRecebedor === companyCnpjClean ||
-                  (analysis.tipoDocumento === "NOTA_FISCAL" &&
-                    (cleanRecebedor === companyCnpjClean ||
-                      analysis.nomeRecebedor?.toLowerCase().includes("antunes araujo") ||
-                      analysis.nomeRecebedor?.toLowerCase().includes("apaa") ||
-                      fileName.includes(companyCnpjClean) ||
-                      (analysis.descricao && analysis.descricao.toLowerCase().includes("nfs-e"))));
+                  analysis.nomeRecebedor?.toLowerCase().includes("antunes araujo") ||
+                  analysis.nomeRecebedor?.toLowerCase().includes("apaa");
+
+                // É Conta a Receber SOMENTE se for NOTA_FISCAL emitida pela APAA (onde somos o PRESTADOR e NÃO o tomador/pagador)
+                // Se a APAA for a tomadora/pagadora, é sempre CONTA A PAGAR!
+                // Boletos e Comprovantes recebidos por e-mail são sempre CONTAS A PAGAR!
+                const isReceivable =
+                  analysis.tipoDocumento === "NOTA_FISCAL" &&
+                  isPrestadorApaa &&
+                  !isTomadorApaa;
 
                 if (isReceivable) {
                   const rec = await prisma.receivable.create({
