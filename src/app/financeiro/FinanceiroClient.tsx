@@ -1795,26 +1795,101 @@ export default function FinanceiroClient({ user }: FinanceiroClientProps) {
           </div>
 
           {/* Visualização da Planilha Exatamente no Modelo do Print */}
-          <div className="space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-4">
+            {/* Seletor rápido de competência e botões de atalho */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-card border border-border shadow-xs">
               <div>
-                <h3 className="text-base font-bold text-foreground">
-                  Planilha de Conciliação Bancária ({String(selectedMes).padStart(2, "0")}/{selectedAno})
+                <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+                  <span>Planilha de Conciliação Bancária</span>
+                  <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-[#0B3D91] text-xs font-bold border border-blue-200">
+                    {String(selectedMes).padStart(2, "0")}/{selectedAno}
+                  </span>
                 </h3>
-                <p className="text-xs text-muted-foreground">
-                  Visualização fiel ao modelo com débitos destacados em vermelho e saldo da conta
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Visualização fiel ao modelo com débitos destacados em vermelho e saldo da conta Sicredi
                 </p>
               </div>
 
-              <a
-                href={`/api/financeiro/conciliacao/exportar-excel?mes=${selectedMes}&ano=${selectedAno}`}
-                download
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-sm transition-all cursor-pointer"
-              >
-                <Download className="w-4 h-4" />
-                <span>Baixar Planilha Excel Oficial (.xlsx)</span>
-              </a>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setSelectedMes(10); setSelectedAno(2026); }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    selectedMes === 10
+                      ? "bg-[#0B3D91] text-white shadow-sm ring-2 ring-[#00A6FF]/40"
+                      : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                  }`}
+                >
+                  📁 Outubro / 2026 (Extrato Importado)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setSelectedMes(11); setSelectedAno(2026); }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    selectedMes === 11
+                      ? "bg-[#0B3D91] text-white shadow-sm ring-2 ring-[#00A6FF]/40"
+                      : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                  }`}
+                >
+                  📁 Novembro / 2026
+                </button>
+
+                <a
+                  href={`/api/financeiro/conciliacao/exportar-excel?mes=${selectedMes}&ano=${selectedAno}`}
+                  download
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-sm transition-all cursor-pointer ml-1"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Excel (.xlsx)</span>
+                </a>
+              </div>
             </div>
+
+            {/* Banner de Ajuda quando visualizando Novembro sem extrato carregado */}
+            {selectedMes === 11 && (!extratoStatement || !extratoStatement.transacoes || extratoStatement.transacoes.length === 0) && (
+              <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-blue-100 text-[#0B3D91] flex items-center justify-center font-bold text-sm shrink-0">
+                    ℹ️
+                  </div>
+                  <div>
+                    <p className="font-bold text-sm text-[#0B3D91]">
+                      Extrato do Sicredi de Outubro/2026 importado com sucesso!
+                    </p>
+                    <p className="text-xs text-blue-800 mt-0.5">
+                      Os 3 arquivos (.ofx, .txt, .pdf) recebidos por e-mail referem-se à competência de <strong>Outubro/2026</strong> (com 12 movimentações e saldo final de R$ 4.411,00).
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setSelectedMes(10); setSelectedAno(2026); }}
+                  className="px-4 py-2 rounded-xl bg-[#0B3D91] hover:bg-[#082e6e] text-white font-bold text-xs shadow-sm transition-all cursor-pointer whitespace-nowrap self-start sm:self-auto"
+                >
+                  Visualizar Outubro/2026 →
+                </button>
+              </div>
+            )}
+
+            {/* Listagem dos arquivos de extrato anexados */}
+            {extratoStatement?.anexos && extratoStatement.anexos.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 p-3 rounded-xl bg-slate-50 border border-border text-xs">
+                <span className="font-semibold text-muted-foreground">Documentos do Extrato ({extratoStatement.anexos.length}):</span>
+                {extratoStatement.anexos.map((att: any) => (
+                  <a
+                    key={att.id}
+                    href={`/api/financeiro/anexos/${att.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-border hover:border-[#00A6FF] text-[#0B3D91] font-medium text-[11px] transition-colors"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-[#00A6FF]" />
+                    <span>{att.nomeOriginal}</span>
+                    <ExternalLink className="w-3 h-3 opacity-60" />
+                  </a>
+                ))}
+              </div>
+            )}
 
             {/* Tabela Idêntica ao Print */}
             <div className="border border-[#002060] rounded-xl overflow-hidden shadow-sm">

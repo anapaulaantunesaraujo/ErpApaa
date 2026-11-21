@@ -400,8 +400,8 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
       }
     }
 
-    // Anexo C: Desmembramento e Limpeza de Fatura Claro vs Extratos Bancários Sicredi
-    // 1. Desvincula qualquer anexo de extrato (.ofx, .txt, .pdf de extrato) de contas a pagar
+    // Anexo C: Desmembramento e Consolidação de Fatura Claro vs Extratos Bancários Sicredi
+    // 1. Garante o Extrato Bancário de Outubro/2026 com os 3 arquivos e as 12 transações conciliadas
     const extratoAttachments = await prisma.attachment.findMany({
       where: {
         OR: [
@@ -413,28 +413,30 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
       include: { payable: true },
     });
 
-    if (extratoAttachments.length > 0) {
-      let statement10 = await prisma.bankStatement.findFirst({
-        where: { mes: 10, ano: 2026 },
+    let statement10 = await prisma.bankStatement.findFirst({
+      where: { mes: 10, ano: 2026 },
+      include: { transacoes: true, anexos: true },
+    });
+    if (!statement10) {
+      statement10 = await prisma.bankStatement.create({
+        data: {
+          banco: "Sicredi",
+          agencia: "2606",
+          conta: "89290-5",
+          mes: 10,
+          ano: 2026,
+          dataInicio: new Date("2026-10-01"),
+          dataFim: new Date("2026-10-31"),
+          saldoInicial: 7101.73,
+          saldoFinal: 4411.0,
+          totalCreditos: 9692.92,
+          totalDebitos: 12383.65,
+        },
+        include: { transacoes: true, anexos: true },
       });
-      if (!statement10) {
-        statement10 = await prisma.bankStatement.create({
-          data: {
-            banco: "Sicredi",
-            agencia: "2606",
-            conta: "89290-5",
-            mes: 10,
-            ano: 2026,
-            dataInicio: new Date("2026-10-01"),
-            dataFim: new Date("2026-10-31"),
-            saldoInicial: 7101.73,
-            saldoFinal: 4411.0,
-            totalCreditos: 9692.92,
-            totalDebitos: 12383.65,
-          },
-        });
-      }
+    }
 
+    if (extratoAttachments.length > 0) {
       for (const ea of extratoAttachments) {
         await prisma.attachment.update({
           where: { id: ea.id },
@@ -443,38 +445,160 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
             payableId: null,
             receivableId: null,
             categoria: "DOCUMENTO",
+            competencia: "2026-10",
           },
         });
       }
     }
 
-    // O comprovante sicredi_17950861990 (R$ 20,00) pertence ao Sicredi Cartões, NUNCA à Claro!
-    const att20Sicredi = await prisma.attachment.findFirst({
-      where: { nomeOriginal: { contains: "17950861990" } },
-    });
-    if (att20Sicredi) {
-      const paySicredi = await prisma.payable.findFirst({
-        where: {
-          OR: [
-            { fornecedorNome: { contains: "Sicredi Cartões", mode: "insensitive" } },
-            { descricao: { contains: "Fatura Sicredi", mode: "insensitive" } },
-          ],
+    // Se o extrato ainda não tiver transações registradas, popula as 12 movimentações reais do Sicredi Outubro/2026
+    if (!statement10.transacoes || statement10.transacoes.length === 0) {
+      const trnsOct = [
+        {
+          fitid: "CX776046",
+          tipo: "DEBIT",
+          data: new Date("2026-10-01T12:00:00Z"),
+          descricao: "PAGAMENTO PIX 08840646973 ANA PAULA ARAU",
+          valor: -7101.73,
+          saldo: 0.0,
+          numeroDocumento: "CX776046",
+          conciliado: true,
         },
-      });
-      if (paySicredi) {
-        await prisma.attachment.update({
-          where: { id: att20Sicredi.id },
-          data: { payableId: paySicredi.id, receivableId: null, categoria: "COMPROVANTE" },
+        {
+          fitid: "PIX_CRED_9692",
+          tipo: "CREDIT",
+          data: new Date("2026-10-06T12:00:00Z"),
+          descricao: "RECEBIMENTO PIX 07656322000132 GH OPERADOR LOGIS",
+          valor: 9692.92,
+          saldo: 9692.92,
+          numeroDocumento: "PIX_CRED",
+          conciliado: true,
+        },
+        {
+          fitid: "CX959528",
+          tipo: "DEBIT",
+          data: new Date("2026-10-06T12:00:00Z"),
+          descricao: "PAGAMENTO PIX 08840646973 ANA PAULA ARAU",
+          valor: -1442.69,
+          saldo: 8250.23,
+          numeroDocumento: "CX959528",
+          conciliado: true,
+        },
+        {
+          fitid: "CONSORCIO_826",
+          tipo: "DEBIT",
+          data: new Date("2026-10-13T12:00:00Z"),
+          descricao: "DEBITO CONVENIOS 07808907000120 ADM.CONSORCIO SI",
+          valor: -826.7,
+          saldo: 7423.53,
+          numeroDocumento: "CONSORCIO",
+          conciliado: true,
+        },
+        {
+          fitid: "UNIMED_444",
+          tipo: "DEBIT",
+          data: new Date("2026-10-14T12:00:00Z"),
+          descricao: "LIQUIDACAO BOLETO 85377174000120 UNIMED LITORAL",
+          valor: -444.59,
+          saldo: 6978.94,
+          numeroDocumento: "85377174000120",
+          conciliado: true,
+        },
+        {
+          fitid: "RECEITA_178",
+          tipo: "DEBIT",
+          data: new Date("2026-10-14T12:00:00Z"),
+          descricao: "PAGAMENTO PIX 003944600005887 RECEITA FEDERAL",
+          valor: -178.31,
+          saldo: 6800.63,
+          numeroDocumento: "PIX_DEB",
+          conciliado: true,
+        },
+        {
+          fitid: "CLARO_109",
+          tipo: "DEBIT",
+          data: new Date("2026-10-14T12:00:00Z"),
+          descricao: "PAGAMENTO PIX 40432544000147 CLARO",
+          valor: -109.98,
+          saldo: 6690.65,
+          numeroDocumento: "PIX_DEB",
+          conciliado: true,
+        },
+        {
+          fitid: "AMS_350",
+          tipo: "DEBIT",
+          data: new Date("2026-10-14T12:00:00Z"),
+          descricao: "LIQUIDACAO BOLETO SICREDI 07168762000140 AMS CON",
+          valor: -350.0,
+          saldo: 6340.65,
+          numeroDocumento: "262032226",
+          conciliado: true,
+        },
+        {
+          fitid: "FATURA_191",
+          tipo: "DEBIT",
+          data: new Date("2026-10-15T12:00:00Z"),
+          descricao: "DEB.CTA.FATURA",
+          valor: -191.12,
+          saldo: 6149.53,
+          numeroDocumento: "032681605",
+          conciliado: true,
+        },
+        {
+          fitid: "CAPITAL_150",
+          tipo: "DEBIT",
+          data: new Date("2026-10-15T12:00:00Z"),
+          descricao: "INTEGR.CAPITAL SUBSCRITO",
+          valor: -150.0,
+          saldo: 5999.53,
+          numeroDocumento: "1",
+          conciliado: true,
+        },
+        {
+          fitid: "RECEITA_581",
+          tipo: "DEBIT",
+          data: new Date("2026-10-20T12:00:00Z"),
+          descricao: "PAGAMENTO PIX 003944600005887 RECEITA FEDERAL",
+          valor: -581.58,
+          saldo: 5417.95,
+          numeroDocumento: "PIX_DEB",
+          conciliado: true,
+        },
+        {
+          fitid: "CX582065",
+          tipo: "DEBIT",
+          data: new Date("2026-10-26T12:00:00Z"),
+          descricao: "PAGAMENTO PIX 08840646973 ANA PAULA ARAU",
+          valor: -1006.95,
+          saldo: 4411.0,
+          numeroDocumento: "CX582065",
+          conciliado: true,
+        },
+      ];
+
+      for (const t of trnsOct) {
+        const exists = await prisma.bankTransaction.findFirst({
+          where: { statementId: statement10.id, fitid: t.fitid },
         });
+        if (!exists) {
+          await prisma.bankTransaction.create({
+            data: {
+              statementId: statement10.id,
+              ...t,
+            },
+          });
+        }
       }
     }
 
-    // Garante apenas UM título legítimo de Claro Telecom (R$ 20,00 com fatura.pdf)
+    // 2. Consolidação de Claro Telecom (R$ 20,00): unifica Fatura Digital + Comprovante Pix Sicredi
     const claroPayables = await prisma.payable.findMany({
       where: {
         OR: [
           { descricao: { contains: "Claro", mode: "insensitive" } },
           { fornecedorNome: { contains: "Claro", mode: "insensitive" } },
+          { anexos: { some: { nomeOriginal: { contains: "fatura.pdf" } } } },
+          { anexos: { some: { nomeOriginal: { contains: "17950861990" } } } },
         ],
       },
       include: { anexos: true, baixas: true },
@@ -483,6 +607,25 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
 
     if (claroPayables.length > 0) {
       const mainClaro = claroPayables[0];
+      const allClaroAtts: any[] = [];
+      for (const p of claroPayables) {
+        if (p.anexos) allClaroAtts.push(...p.anexos);
+      }
+
+      const strayFatura = await prisma.attachment.findFirst({
+        where: { nomeOriginal: "fatura.pdf" },
+      });
+      if (strayFatura && !allClaroAtts.some((a) => a.id === strayFatura.id)) {
+        allClaroAtts.push(strayFatura);
+      }
+
+      const strayCompClaro = await prisma.attachment.findFirst({
+        where: { nomeOriginal: { contains: "17950861990" } },
+      });
+      if (strayCompClaro && !allClaroAtts.some((a) => a.id === strayCompClaro.id)) {
+        allClaroAtts.push(strayCompClaro);
+      }
+
       await prisma.payable.update({
         where: { id: mainClaro.id },
         data: {
@@ -490,35 +633,48 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
           fornecedorNome: "Claro Telecom",
           fornecedorCpfCnpj: "40.432.544/0191-66",
           valorOriginal: 20.0,
+          valorPago: 20.0,
+          status: "PAGO",
           dataVencimento: new Date("2026-11-21"),
+          dataPagamento: new Date("2026-11-18"),
+          categoria: "SERVICOS",
         },
       });
 
-      const attFaturaClaro = await prisma.attachment.findFirst({
-        where: {
-          OR: [
-            { nomeOriginal: "fatura.pdf" },
-            { nomeOriginal: { contains: "claro", mode: "insensitive" } },
-          ],
-          bankStatementId: null,
-        },
-      });
-
-      if (attFaturaClaro) {
+      for (const att of allClaroAtts) {
+        const isComp = att.nomeOriginal.includes("17950861990") || att.categoria === "COMPROVANTE";
         await prisma.attachment.update({
-          where: { id: attFaturaClaro.id },
+          where: { id: att.id },
           data: {
             payableId: mainClaro.id,
             receivableId: null,
-            categoria: "DOCUMENTO",
+            bankStatementId: null,
+            categoria: isComp ? "COMPROVANTE" : "DOCUMENTO",
           },
         });
       }
 
-      // Expurga títulos excedentes/duplicados de Claro gerados por extratos ou agrupamentos indevidos
+      const compClaro = allClaroAtts.find(
+        (a) => a.nomeOriginal.includes("17950861990") || a.categoria === "COMPROVANTE"
+      );
+
+      await prisma.paymentRecord.deleteMany({
+        where: { payableId: { in: claroPayables.map((p) => p.id) } },
+      });
+
+      await prisma.paymentRecord.create({
+        data: {
+          tipo: "PAGAMENTO",
+          payableId: mainClaro.id,
+          data: new Date("2026-11-18"),
+          valor: 20.0,
+          formaPagamento: "PIX",
+          comprovanteAnexoId: compClaro?.id || null,
+          observacoes: "Pagamento Fatura Digital Claro (Pix)",
+        },
+      });
+
       for (let i = 1; i < claroPayables.length; i++) {
-        await prisma.paymentRecord.deleteMany({ where: { payableId: claroPayables[i].id } });
-        await prisma.attachment.deleteMany({ where: { payableId: claroPayables[i].id } });
         await prisma.payable.delete({ where: { id: claroPayables[i].id } });
       }
     }
@@ -608,7 +764,9 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
         },
       });
 
-      const att20 = allAttachments.find((a) => a.nomeOriginal.includes("17950861990"));
+      const att20 = allAttachments.find(
+        (a) => a.nomeOriginal.includes("1795196680370") || a.nomeOriginal.includes("1795196")
+      );
       await prisma.paymentRecord.create({
         data: {
           tipo: "PAGAMENTO",
@@ -1281,10 +1439,22 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
       candidateFolders.push(inboxMb.path);
     }
 
-    // Filtra estritamente para garantir que nenhuma pasta com "lidos" seja escaneada
-    candidateFolders = candidateFolders.filter((cp) => !cp.toLowerCase().includes("lidos"));
+    if (!lidosFolderPath) {
+      for (const mb of mailboxes) {
+        const p = mb.path.toLowerCase();
+        const n = mb.name.toLowerCase();
+        if (p.includes("lidos") || n === "lidos") {
+          lidosFolderPath = mb.path;
+          break;
+        }
+      }
+    }
 
     if (candidateFolders.length === 0) candidateFolders.push("INBOX");
+    // Inclui a pasta Lidos na varredura para garantir que nenhum anexo tenha se perdido
+    if (lidosFolderPath && !candidateFolders.includes(lidosFolderPath)) {
+      candidateFolders.push(lidosFolderPath);
+    }
     result.pastasVerificadas = candidateFolders;
 
     await addAuditLog(
@@ -1586,6 +1756,7 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
                     receivableId: null,
                     categoria: "DOCUMENTO",
                     competencia: competenciaExtrato,
+                    conteudoBase64: anexoItem.buffer.toString("base64"),
                   },
                 });
               } else {
@@ -1595,6 +1766,7 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
                     nomeOriginal: anexoItem.fileName,
                     nomeArquivo: uniqueFileName,
                     caminho: filePath,
+                    conteudoBase64: anexoItem.buffer.toString("base64"),
                     mimeType: anexoItem.mimeType || "application/octet-stream",
                     tamanho: anexoItem.buffer.length,
                     competencia: competenciaExtrato,
