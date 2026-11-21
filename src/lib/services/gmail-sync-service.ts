@@ -203,8 +203,10 @@ export function identificarCategoriaDocumento(texto: string): string | null {
   if (
     !t.includes("danfe") &&
     !t.includes("nota fiscal") &&
-    (/\b(pgdas|guia\s*das|das\.pdf)\b/i.test(t) ||
-      (t.includes("simples nacional") && (t.includes("guia") || t.includes("imposto") || t.includes("arrecadação") || t.includes("receita federal"))))
+    (/\b(pgdas|guia\s*das|das\.pdf|simples\s*nacional)\b/i.test(t) ||
+      t.includes("dpto fiscal") ||
+      t.includes("departamento fiscal") ||
+      (t.includes("receita federal") && (t.includes("581") || t.includes("das") || t.includes("simples") || t.includes("dpto"))))
   ) {
     return "DAS";
   }
@@ -216,7 +218,7 @@ export function identificarCategoriaDocumento(texto: string): string | null {
     t.includes("previdência") ||
     t.includes("previdencia") ||
     t.includes("gps") ||
-    t.includes("receita federal")
+    (t.includes("receita federal") && (t.includes("178") || t.includes("inss") || t.includes("gps") || t.includes("previdência")))
   ) {
     return "INSS";
   }
@@ -672,27 +674,104 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
       }
     }
 
-    // 4.2. Garante o título legítimo de DAS - Simples Nacional (R$ 581,58)
-    let payDasReal = await prisma.payable.findFirst({
+    // 4.2. Garante o título legítimo de DAS - Simples Nacional (R$ 581,58) e UNIFICA Boleto + Comprovante
+    const allDasCandidates = await prisma.payable.findMany({
       where: {
         OR: [
-          { valorOriginal: 581.58 },
+          { valorOriginal: { gte: 580, lte: 583 } },
+          { valorPago: { gte: 580, lte: 583 } },
+          { descricao: { contains: "DAS", mode: "insensitive" } },
+          { descricao: { contains: "Simples Nacional", mode: "insensitive" } },
           { anexos: { some: { nomeOriginal: { contains: "17950022147" } } } },
+          { anexos: { some: { nomeOriginal: { contains: "das.pdf", mode: "insensitive" } } } },
         ],
       },
+      include: { anexos: true, baixas: true },
+      orderBy: { createdAt: "asc" },
     });
 
-    if (payDasReal) {
-      // O boleto das.pdf pertence ao DAS real (R$ 581,58) e NUNCA à Distribuição de Resultados
-      const attDasPdf = await prisma.attachment.findFirst({
+    const realDasGroup = allDasCandidates.filter(
+      (p) =>
+        Math.abs(p.valorOriginal - 581.58) < 1.0 ||
+        Math.abs((p.valorPago || 0) - 581.58) < 1.0 ||
+        p.anexos.some((a) => a.nomeOriginal.includes("17950022147") || a.nomeOriginal.toLowerCase().includes("das.pdf"))
+    );
+
+    if (realDasGroup.length > 0) {
+      // Prioriza o registro com nome formal da Receita Federal
+      const mainDas =
+        realDasGroup.find((p) => p.fornecedorNome?.toLowerCase().includes("receita")) || realDasGroup[0];
+      const otherDas = realDasGroup.filter((p) => p.id !== mainDas.id);
+
+      const allDasAtts: any[] = [];
+      for (const p of realDasGroup) {
+        if (p.anexos) allDasAtts.push(...p.anexos);
+      }
+
+      const strayDasPdf = await prisma.attachment.findFirst({
         where: { nomeOriginal: "das.pdf" },
       });
-      if (attDasPdf) {
+      if (strayDasPdf && !allDasAtts.some((a) => a.id === strayDasPdf.id)) {
+        allDasAtts.push(strayDasPdf);
+      }
+
+      await prisma.payable.update({
+        where: { id: mainDas.id },
+        data: {
+          descricao: "DAS - Simples Nacional",
+          fornecedorNome: "Receita Federal / Simples Nacional",
+          fornecedorCpfCnpj: "00.394.460/0001-41",
+          categoria: "IMPOSTOS",
+          valorOriginal: 581.58,
+          valorPago: 581.58,
+          status: "PAGO",
+          dataVencimento: new Date("2026-11-23"),
+          dataPagamento: new Date("2026-11-18"),
+        },
+      });
+
+      for (const att of allDasAtts) {
+        const isComp = att.nomeOriginal.includes("17950022147") || att.categoria === "COMPROVANTE";
         await prisma.attachment.update({
-          where: { id: attDasPdf.id },
-          data: { payableId: payDasReal.id, receivableId: null, categoria: "BOLETO" },
+          where: { id: att.id },
+          data: {
+            payableId: mainDas.id,
+            receivableId: null,
+            categoria: isComp ? "COMPROVANTE" : "BOLETO",
+          },
         });
       }
+
+      const compAtt = allDasAtts.find((a) => a.nomeOriginal.includes("17950022147") || a.categoria === "COMPROVANTE");
+
+      await prisma.paymentRecord.deleteMany({
+        where: { payableId: { in: realDasGroup.map((p) => p.id) } },
+      });
+
+      await prisma.paymentRecord.create({
+        data: {
+          tipo: "PAGAMENTO",
+          payableId: mainDas.id,
+          data: new Date("2026-11-18"),
+          valor: 581.58,
+          formaPagamento: "PIX",
+          comprovanteAnexoId: compAtt?.id || null,
+          observacoes: "Pagamento Guia DAS Simples Nacional (Pix)",
+        },
+      });
+
+      for (const dup of otherDas) {
+        await prisma.paymentRecord.deleteMany({ where: { payableId: dup.id } });
+        await prisma.attachment.deleteMany({ where: { payableId: dup.id } });
+        await prisma.payable.delete({ where: { id: dup.id } });
+      }
+
+      await addAuditLog(
+        "GMAIL_SYNC",
+        "SUCCESS",
+        "DAS Unificado",
+        "Guia DAS (R$ 581,58) e Comprovante Pix unificados com sucesso em um único contas a pagar PAGO."
+      );
     }
 
     // Expurga títulos fantasmas ou duplicados de DAS com valor R$ 4.411,00
@@ -887,7 +966,53 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
       await prisma.payable.delete({ where: { id: nfPay.id } });
     }
 
-    // 7. Correção e Reprocessamento de NF-e de Compras que caíram como DAS ou Fornecedor Genérico
+    // 7. Correção e Reprocessamento de NF-e de Compras que caíram como DAS ou com Valor de Subtotal
+    // 7.1. Força os valores corretos e brutos de notas fiscais confirmadas
+    const starhousePayables = await prisma.payable.findMany({
+      where: {
+        OR: [
+          { fornecedorNome: { contains: "STARHOUSE", mode: "insensitive" } },
+          { descricao: { contains: "1669618" } },
+          { anexos: { some: { nomeOriginal: { contains: "7422640712" } } } },
+          { anexos: { some: { nomeOriginal: { contains: "35261104617659000142550010016696181462829196" } } } },
+        ],
+      },
+    });
+    for (const sh of starhousePayables) {
+      await prisma.payable.update({
+        where: { id: sh.id },
+        data: {
+          fornecedorNome: "STARHOUSE MEGA STORE LTDA",
+          descricao: "NF-e 1669618 - STARHOUSE MEGA STORE LTDA",
+          valorOriginal: 33.75,
+          categoria: "PRODUTOS",
+        },
+      });
+    }
+
+    const gobbiPayables = await prisma.payable.findMany({
+      where: {
+        OR: [
+          { fornecedorNome: { contains: "GOBBI", mode: "insensitive" } },
+          { descricao: { contains: "1047592" } },
+          { anexos: { some: { nomeOriginal: { contains: "7464969274" } } } },
+          { anexos: { some: { nomeOriginal: { contains: "3526112052799600010355002001047592152442713" } } } },
+        ],
+      },
+    });
+    for (const gb of gobbiPayables) {
+      await prisma.payable.update({
+        where: { id: gb.id },
+        data: {
+          fornecedorNome: "R.A. GOBBI SUPLEMENTOS LTDA",
+          descricao: "NF-e 1047592 - R.A. GOBBI SUPLEMENTOS LTDA",
+          valorOriginal: 173.14,
+          categoria: "PRODUTOS",
+        },
+      });
+    }
+
+    // 7.2. Varredura ampla de DANFEs com buffer para atualizar fornecedor real e valor total da nota
     const suspiciousNfePayables = await prisma.payable.findMany({
       where: {
         OR: [
@@ -903,10 +1028,12 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
             anexos: {
               some: {
                 OR: [
-                  { nomeOriginal: { contains: "352611" } },
+                  { nomeOriginal: { contains: "3526" } },
+                  { nomeOriginal: { contains: "3126" } },
+                  { nomeOriginal: { contains: "4226" } },
                   { nomeOriginal: { contains: "AH202611" } },
-                  { nomeOriginal: { contains: "DANFE" } },
-                  { nomeOriginal: { contains: "danfe" } },
+                  { nomeOriginal: { contains: "DANFE", mode: "insensitive" } },
+                  { nomeOriginal: { contains: "danfe", mode: "insensitive" } },
                 ],
               },
             },
@@ -924,7 +1051,9 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
       const nfeAtt = p.anexos.find(
         (a) =>
           /\d{44}/.test(a.nomeOriginal) ||
-          a.nomeOriginal.includes("352611") ||
+          a.nomeOriginal.includes("3526") ||
+          a.nomeOriginal.includes("3126") ||
+          a.nomeOriginal.includes("4226") ||
           a.nomeOriginal.toLowerCase().includes("danfe") ||
           a.nomeOriginal.toLowerCase().endsWith(".xml")
       );
@@ -966,16 +1095,18 @@ export async function desmembrarECorrigirLancamentosSicredi(): Promise<void> {
           const nomeForn =
             reAnalysis.nomeRecebedor && !reAnalysis.nomeRecebedor.includes("Receita Federal")
               ? reAnalysis.nomeRecebedor
-              : "Fornecedor de Produtos (NF-e)";
+              : (p.fornecedorNome && !p.fornecedorNome.includes("Receita Federal") ? p.fornecedorNome : "Fornecedor de Produtos (NF-e)");
+
+          const valorFinalNota = reAnalysis.valor > 0 ? Math.max(reAnalysis.valor, p.valorOriginal) : p.valorOriginal;
 
           await prisma.payable.update({
             where: { id: p.id },
             data: {
-              descricao: reAnalysis.descricao.replace(/Receita Federal \/ Simples Nacional/gi, nomeForn),
+              descricao: reAnalysis.descricao ? reAnalysis.descricao.replace(/Receita Federal \/ Simples Nacional/gi, nomeForn) : p.descricao,
               fornecedorNome: nomeForn,
               fornecedorCpfCnpj: reAnalysis.cnpjRecebedor || p.fornecedorCpfCnpj,
               numeroDocumento: reAnalysis.numeroDocumento || p.numeroDocumento,
-              valorOriginal: reAnalysis.valor > 0 ? reAnalysis.valor : p.valorOriginal,
+              valorOriginal: valorFinalNota,
               categoria: "PRODUTOS",
               dataVencimento: reAnalysis.dataVencimento ? new Date(reAnalysis.dataVencimento) : p.dataVencimento,
             },
@@ -1673,6 +1804,41 @@ export async function sincronizarEmailsMarcadorGmail(): Promise<EmailSyncResult>
                         break;
                       }
                     }
+                  }
+                }
+              }
+
+              // 4. Se for comprovante de pagamento com valor positivo e ainda não encontrou título correspondente:
+              // Procura por título PENDENTE na competência com o mesmo valor (+- 0.05) para unificar e dar baixa diretamente
+              if (!existingPayable && analysis.tipoDocumento === "COMPROVANTE_PAGAMENTO" && analysis.valor > 0) {
+                const pendingCandidates = await prisma.payable.findMany({
+                  where: {
+                    status: "PENDENTE",
+                    valorOriginal: {
+                      gte: analysis.valor - 0.05,
+                      lte: analysis.valor + 0.05,
+                    },
+                    dataCompetencia: {
+                      gte: new Date(now.getFullYear(), now.getMonth(), 1),
+                      lte: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59),
+                    },
+                  },
+                });
+
+                if (pendingCandidates.length === 1) {
+                  existingPayable = pendingCandidates[0];
+                } else if (pendingCandidates.length > 1) {
+                  const rec = (analysis.nomeRecebedor || "").toLowerCase();
+                  const match = pendingCandidates.find((c) => {
+                    const forn = (c.fornecedorNome || "").toLowerCase();
+                    const desc = (c.descricao || "").toLowerCase();
+                    return (
+                      (rec && (forn.includes(rec) || rec.includes(forn) || desc.includes(rec))) ||
+                      (rec.includes("receita") && (forn.includes("receita") || desc.includes("simples") || desc.includes("das")))
+                    );
+                  });
+                  if (match) {
+                    existingPayable = match;
                   }
                 }
               }

@@ -1,10 +1,23 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { desmembrarECorrigirLancamentosSicredi } from "@/lib/services/gmail-sync-service";
+
+let lastAutoHeal = 0;
 
 export async function GET(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+
+  // Executa auto-cura com throttle de 10s para consolidar DAS, NF-es com valores brutos e duplicidades
+  if (Date.now() - lastAutoHeal > 10_000) {
+    lastAutoHeal = Date.now();
+    try {
+      await desmembrarECorrigirLancamentosSicredi();
+    } catch (e) {
+      console.warn("Erro ao executar auto-cura de contas a pagar:", e);
+    }
+  }
 
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status");

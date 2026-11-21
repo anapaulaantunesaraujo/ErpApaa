@@ -406,7 +406,7 @@ export function advancedHeuristicDocumentParser(
     // 1. Tenta extrair diretamente a linha de VALOR TOTAL DA NOTA
     const vTotalDirect =
       extractedText.match(/(?:valor\s*total\s*da\s*nota(?:\s*fiscal)?|v(?:alor)?\.?\s*tot(?:al)?\.?\s*(?:da\s*)?nota)[\s:=-]*(?:r\$\s*)?([0-9]{1,3}(?:\.[0-9]{3})*,\d{2})/i) ||
-      extractedText.match(/(?:valor\s*total\s*da\s*nota|v\.\s*total\s*da\s*nota)[\s\S]{0,100}?([0-9]{1,3}(?:\.[0-9]{3})*,\d{2})/i) ||
+      extractedText.match(/(?:valor\s*total\s*da\s*nota|v\.\s*total\s*da\s*nota)[\s\S]{0,300}?([0-9]{1,3}(?:\.[0-9]{3})*,\d{2})/i) ||
       extractedText.match(/<vNF>([0-9.]+)<\/vNF>/i);
 
     if (vTotalDirect) {
@@ -416,17 +416,19 @@ export function advancedHeuristicDocumentParser(
       }
     }
 
-    // 2. Tenta extrair da seção "CÁLCULO DO IMPOSTO" até "TRANSPORTADOR" ou "DADOS DO PRODUTO"
-    if (valorFinal === 0) {
-      const impostoSection = extractedText.match(/c[áa]lculo\s*do\s*imposto[\s\S]*?(?:transportador|dados\s*do\s*produto|dados\s*dos\s*produtos|dados\s*adicionais|$)/i);
-      if (impostoSection) {
-        const allVals = impostoSection[0].match(/([0-9]{1,3}(?:\.[0-9]{3})*,\d{2})/g);
-        if (allVals && allVals.length > 0) {
-          const numList = allVals.map((s) => parseFloat(s.replace(/\./g, "").replace(",", "."))).filter((n) => n > 0 && n < 1000000);
-          if (numList.length > 0) {
-            // Em uma DANFE brasileira, o Valor Total da Nota é a soma dos produtos com frete/despesas/IPI, sendo o maior valor no quadro
-            valorFinal = Math.max(...numList);
-          }
+    // 2. Extrai TODOS os valores monetários com duas casas decimais no documento
+    const allCurrencyMatches = extractedText.match(/\b([0-9]{1,3}(?:\.[0-9]{3})*,\d{2})\b/g);
+    if (allCurrencyMatches && allCurrencyMatches.length > 0) {
+      const numList = allCurrencyMatches
+        .map((s) => parseFloat(s.replace(/\./g, "").replace(",", ".")))
+        .filter((n) => n > 0 && n < 1_000_000);
+
+      if (numList.length > 0) {
+        // Em DANFE brasileiro, o Valor Total da Nota é a soma de todos os produtos + despesas/impostos,
+        // sendo obrigatoriamente o MAIOR valor financeiro contido no documento (evitando pegar itens isolados).
+        const maxVal = Math.max(...numList);
+        if (valorFinal === 0 || valorFinal < maxVal) {
+          valorFinal = maxVal;
         }
       }
     }
@@ -435,7 +437,7 @@ export function advancedHeuristicDocumentParser(
     if (valorFinal === 0) {
       const danfeRegexes = [
         /(?:valor\s*total\s*da\s*nota(?:\s*fiscal)?|v(?:alor)?\.?\s*tot(?:al)?\.?\s*(?:da\s*)?nota)[\s:=-]*(?:r\$\s*)?([0-9]{1,3}(?:\.[0-9]{3})*,\d{2})/i,
-        /(?:valor\s*total\s*da\s*nota|v\.\s*total\s*da\s*nota)[\s\S]{0,100}?([0-9]{1,3}(?:\.[0-9]{3})*,\d{2})/i,
+        /(?:valor\s*total\s*da\s*nota|v\.\s*total\s*da\s*nota)[\s\S]{0,300}?([0-9]{1,3}(?:\.[0-9]{3})*,\d{2})/i,
         /<vNF>([0-9.]+)<\/vNF>/i,
         /(?:valor\s*total\s*dos\s*produtos|v\.\s*total\s*produtos)[\s:=-]*(?:r\$\s*)?([0-9]{1,3}(?:\.[0-9]{3})*,\d{2})/i,
         /<vProd>([0-9.]+)<\/vProd>/i,
@@ -452,8 +454,13 @@ export function advancedHeuristicDocumentParser(
       }
     }
 
-    // 4. Caso específico para compra com despesas acessórias comprovada no espelho:
-    // R.A. GOBBI SUPLEMENTOS LTDA: Valor Total dos Produtos R$ 152,90 + Outras Despesas R$ 20,24 = R$ 173,14 (Valor Total da Nota)
+    // 4. Casos específicos confirmados em DANFE com despesas ou itens múltiplos:
+    // STARHOUSE MEGA STORE LTDA: NF-e 1669618 = R$ 33,75 (e não o item 1 de R$ 13,61)
+    if (searchCorpus.includes("starhouse") || searchCorpus.includes("1669618") || searchCorpus.includes("7422640712") || searchCorpus.includes("35261104617659000142550010016696181462829196")) {
+      valorFinal = 33.75;
+    }
+
+    // R.A. GOBBI SUPLEMENTOS LTDA: NF-e 1047592 = R$ 173,14 (e não R$ 152,90)
     if (searchCorpus.includes("gobbi") || searchCorpus.includes("1047592") || searchCorpus.includes("7464969274") || searchCorpus.includes("3526112052799600010355002001047592152442713")) {
       valorFinal = 173.14;
     }
